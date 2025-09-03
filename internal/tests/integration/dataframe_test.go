@@ -21,15 +21,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/apache/spark-connect-go/v40/spark/sql/utils"
+	"github.com/apache/spark-connect-go/spark/sql/utils"
 
-	"github.com/apache/spark-connect-go/v40/spark/sql/types"
+	"github.com/apache/spark-connect-go/spark/sql/types"
 
-	"github.com/apache/spark-connect-go/v40/spark/sql/column"
+	"github.com/apache/spark-connect-go/spark/sql/column"
 
-	"github.com/apache/spark-connect-go/v40/spark/sql/functions"
+	"github.com/apache/spark-connect-go/spark/sql/functions"
 
-	"github.com/apache/spark-connect-go/v40/spark/sql"
+	"github.com/apache/spark-connect-go/spark/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -788,7 +788,7 @@ func TestDataFrame_WithOption(t *testing.T) {
 	_, err = file.WriteString("id#name,name\n")
 	assert.NoError(t, err)
 	for i := 0; i < 10; i++ {
-		_, err = file.WriteString(fmt.Sprintf("%d#alice,alice\n", i))
+		_, err = fmt.Fprintf(file, "%d#alice,alice\n", i)
 		assert.NoError(t, err)
 	}
 	df, err := spark.Read().Format("csv").
@@ -1203,4 +1203,24 @@ func TestDataFrame_RangeIter(t *testing.T) {
 		// The error is immediately thrown:
 		assert.Error(t, err)
 	}
+}
+
+func TestDataFrame_PrintSchema(t *testing.T) {
+	ctx, spark := connect()
+	df, err := spark.Sql(ctx, "select * from range(10)")
+	assert.NoError(t, err)
+	err = df.PrintSchema(ctx)
+	assert.NoError(t, err)
+}
+
+func TestDataFrame_SchemaTreeString(t *testing.T) {
+	ctx, spark := connect()
+	df, err := spark.Sql(ctx, "select map('a', 1) as first, array(1,2,3) as second, map('a', map('b', 2)) as third")
+	assert.NoError(t, err)
+	schema, err := df.Schema(ctx)
+	assert.NoError(t, err)
+	ts := schema.TreeString()
+	assert.Contains(t, ts, "|-- first: map")
+	assert.Contains(t, ts, "|-- second: array")
+	assert.Contains(t, ts, "|-- third: map")
 }

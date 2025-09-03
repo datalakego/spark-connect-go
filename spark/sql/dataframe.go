@@ -22,14 +22,14 @@ import (
 	"math/rand/v2"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/apache/spark-connect-go/v40/spark/sql/utils"
+	"github.com/apache/spark-connect-go/spark/sql/utils"
 
-	"github.com/apache/spark-connect-go/v40/spark/sql/column"
+	"github.com/apache/spark-connect-go/spark/sql/column"
 
-	"github.com/apache/spark-connect-go/v40/spark/sql/types"
+	"github.com/apache/spark-connect-go/spark/sql/types"
 
-	proto "github.com/apache/spark-connect-go/v40/internal/generated"
-	"github.com/apache/spark-connect-go/v40/spark/sparkerrors"
+	proto "github.com/apache/spark-connect-go/internal/generated"
+	"github.com/apache/spark-connect-go/spark/sparkerrors"
 )
 
 // ResultCollector receives a stream of result rows
@@ -156,6 +156,7 @@ type DataFrame interface {
 	Offset(ctx context.Context, offset int32) DataFrame
 	// OrderBy is an alias for Sort
 	OrderBy(ctx context.Context, columns ...column.Convertible) (DataFrame, error)
+	PrintSchema(ctx context.Context) error
 	Persist(ctx context.Context, storageLevel utils.StorageLevel) error
 	RandomSplit(ctx context.Context, weights []float64) ([]DataFrame, error)
 	// Repartition re-partitions a data frame.
@@ -1727,4 +1728,13 @@ func (df *dataFrameImpl) All(ctx context.Context) iter.Seq2[types.Row, error] {
 			}
 		}
 	}
+}
+
+func (df *dataFrameImpl) PrintSchema(ctx context.Context) error {
+	schema, err := df.Schema(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Print(schema.TreeString())
+	return nil
 }

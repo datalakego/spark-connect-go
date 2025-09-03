@@ -23,19 +23,19 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow/memory"
-	"github.com/apache/spark-connect-go/v40/spark/sql/types"
+	"github.com/apache/spark-connect-go/spark/sql/types"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
-	"github.com/apache/spark-connect-go/v40/spark/client/base"
+	"github.com/apache/spark-connect-go/spark/client/base"
 
-	"github.com/apache/spark-connect-go/v40/spark/client/options"
+	"github.com/apache/spark-connect-go/spark/client/options"
 
-	proto "github.com/apache/spark-connect-go/v40/internal/generated"
-	"github.com/apache/spark-connect-go/v40/spark/client"
-	"github.com/apache/spark-connect-go/v40/spark/client/channel"
-	"github.com/apache/spark-connect-go/v40/spark/sparkerrors"
+	proto "github.com/apache/spark-connect-go/internal/generated"
+	"github.com/apache/spark-connect-go/spark/client"
+	"github.com/apache/spark-connect-go/spark/client/channel"
+	"github.com/apache/spark-connect-go/spark/sparkerrors"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/metadata"
 )
@@ -230,7 +230,7 @@ func (s *sparkSessionImpl) CreateDataFrameFromArrow(ctx context.Context, data ar
 func (s *sparkSessionImpl) CreateDataFrame(ctx context.Context, data [][]any, schema *types.StructType) (DataFrame, error) {
 	pool := memory.NewGoAllocator()
 	// Convert the data into an Arrow Table
-	arrowSchema := arrow.NewSchema(schema.ToArrowType().Fields(), nil)
+	arrowSchema := arrow.NewSchema(schema.ToArrowType().(*arrow.StructType).Fields(), nil)
 	rb := array.NewRecordBuilder(pool, arrowSchema)
 	defer rb.Release()
 	// Iterate over all fields and add the values:

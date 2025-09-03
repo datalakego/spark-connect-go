@@ -16,7 +16,12 @@
 
 package types
 
-import "github.com/apache/arrow-go/v18/arrow"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/apache/arrow-go/v18/arrow"
+)
 
 // StructField represents a field in a StructType.
 type StructField struct {
@@ -34,25 +39,64 @@ func (t *StructField) ToArrowType() arrow.Field {
 	}
 }
 
+func (t *StructField) buildFormattedString(prefix string, target *string) {
+	if target == nil {
+		return
+	}
+
+	switch t.DataType.(type) {
+	case ArrayType:
+		*target += fmt.Sprintf("%s-- %s: array (nullable = %t)\n",
+			prefix, t.Name, t.Nullable)
+		*target += fmt.Sprintf("%s    |-- element: %s (valueContainsNull = %t)\n",
+			prefix, t.DataType.(ArrayType).ElementType.TypeName(), t.Nullable)
+	case MapType:
+		*target += fmt.Sprintf("%s-- %s: map (nullable = %t)\n",
+			prefix, t.Name, t.Nullable)
+		*target += fmt.Sprintf("%s    |-- key: %s\n",
+			prefix, t.DataType.(MapType).KeyType.TypeName())
+		*target += fmt.Sprintf("%s    |-- value: %s (valueContainsNull = %t)\n",
+			prefix, t.DataType.(MapType).ValueType.TypeName(), t.Nullable)
+	case StructType:
+		*target += fmt.Sprintf("%s-- %s: structtype (nullable = %t)\n",
+			prefix, t.Name, t.Nullable)
+		for _, field := range t.DataType.(StructType).Fields {
+			field.buildFormattedString(prefix+"    |", target)
+		}
+	default:
+		*target += fmt.Sprintf("%s-- %s: %s (nullable = %t)\n", prefix, t.Name,
+			strings.ToLower(t.DataType.TypeName()), t.Nullable)
+	}
+}
+
 // StructType represents a struct type.
 type StructType struct {
 	Fields []StructField
 }
 
-func (t *StructType) TypeName() string {
+func (t StructType) TypeName() string {
 	return "structtype"
 }
 
-func (t *StructType) IsNumeric() bool {
+func (t StructType) IsNumeric() bool {
 	return false
 }
 
-func (t *StructType) ToArrowType() *arrow.StructType {
+func (t StructType) ToArrowType() arrow.DataType {
 	fields := make([]arrow.Field, len(t.Fields))
 	for i, f := range t.Fields {
 		fields[i] = f.ToArrowType()
 	}
 	return arrow.StructOf(fields...)
+}
+
+func (t *StructType) TreeString() string {
+	tree := string("root\n")
+	prefix := " |"
+	for _, f := range t.Fields {
+		f.buildFormattedString(prefix, &tree)
+	}
+	return tree + "\n"
 }
 
 func StructOf(fields ...StructField) *StructType {
