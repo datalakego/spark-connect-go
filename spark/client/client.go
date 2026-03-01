@@ -435,18 +435,15 @@ func (c *ExecutePlanClient) ToTable() (*types.StructType, arrow.Table, error) {
 	}
 }
 
-// ToRecordSequence returns a single Seq2 iterator
+// ToRecordSequence returns a single Seq2 iterator that directly yields results as they arrive.
 func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arrow.Record, error] {
-	// Return Seq2 iterator that directly yields results as they arrive, upstream callers can convert this as needed
-	iterator := func(yield func(arrow.Record, error) bool) {
-		// Explicitly needed when tracking re-attachable execution.
-		c.done = false
+	return func(yield func(arrow.Record, error) bool) {
+		// Track logical completion locally to avoid racing on shared struct state.
+		done := false
 
 		for {
-			// Check for context cancellation before each iteration
 			select {
 			case <-ctx.Done():
-				// Yield the context error and stop
 				yield(nil, ctx.Err())
 				return
 			default:
@@ -454,7 +451,6 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 
 			resp, err := c.responseStream.Recv()
 
-			// Check for context cancellation after potentially blocking operations
 			select {
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
@@ -462,27 +458,23 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 			default:
 			}
 
-			// EOF is received when the last message has been processed (Observed on Databricks instances)
 			if errors.Is(err, io.EOF) {
-				return // Clean end of stream
+				break
 			}
 
-			// Handle other errors
 			if err != nil {
 				if se := sparkerrors.FromRPCError(err); se != nil {
 					yield(nil, sparkerrors.WithType(se, sparkerrors.ExecutionError))
 				} else {
 					yield(nil, err)
 				}
-				return // Stop on error
+				return
 			}
 
-			// Only proceed if we have a valid response
 			if resp == nil {
 				continue
 			}
 
-			// Validate session ID
 			if resp.GetSessionId() != c.sessionId {
 				yield(nil, sparkerrors.WithType(
 					&sparkerrors.InvalidServerSideSessionDetailsError{
@@ -492,7 +484,6 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 				return
 			}
 
-			// Process schema if present
 			if resp.Schema != nil {
 				var schemaErr error
 				c.schema, schemaErr = types.ConvertProtoDataTypeToStructType(resp.Schema)
@@ -502,7 +493,6 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 				}
 			}
 
-			// Process response types
 			switch x := resp.ResponseType.(type) {
 			case *proto.ExecutePlanResponse_SqlCommandResult_:
 				if val := x.SqlCommandResult.GetRelation(); val != nil {
@@ -515,16 +505,12 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 					yield(nil, err)
 					return
 				}
-
-				// Yield the record and check if consumer wants to continue
 				if !yield(record, nil) {
-					// Consumer stopped iteration early
-					// Note: Consumer is responsible for releasing the record
 					return
 				}
 
 			case *proto.ExecutePlanResponse_ResultComplete_:
-				c.done = true
+				done = true
 				return
 
 			case *proto.ExecutePlanResponse_ExecutionProgress_:
@@ -534,9 +520,14 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 				// Explicitly ignore unknown message types
 			}
 		}
-	}
 
-	return iterator
+		// Check that the result is logically complete. With re-attachable execution
+		// the server may interrupt the connection, and we need a ResultComplete
+		// message to confirm the full result was received.
+		if c.opts.ReattachExecution && !done {
+			yield(nil, sparkerrors.WithType(fmt.Errorf("the result is not complete"), sparkerrors.ExecutionError))
+		}
+	}
 }
 
 func NewExecuteResponseStream(
