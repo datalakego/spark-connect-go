@@ -3,6 +3,7 @@ package types_test
 import (
 	"context"
 	"errors"
+	"io"
 	"iter"
 	"testing"
 
@@ -69,7 +70,7 @@ func TestRowIterator_BasicIteration(t *testing.T) {
 
 	seq2 := createTestSeq2(records, nil)
 
-	rowIter := types.NewRowPull2(context.Background(), seq2)
+	rowIter := types.NewRowSequence(context.Background(), seq2)
 
 	// Collect all rows
 	var rows []types.Row
@@ -92,7 +93,7 @@ func TestRowIterator_EmptyResult(t *testing.T) {
 		// Don't yield anything - sequence is immediately over
 	}
 
-	next := types.NewRowPull2(context.Background(), seq2)
+	next := types.NewRowSequence(context.Background(), seq2)
 
 	// Should iterate zero times
 	count := 0
@@ -117,7 +118,7 @@ func TestRowIterator_ErrorPropagation(t *testing.T) {
 		yield(nil, testErr)
 	}
 
-	next := types.NewRowPull2(context.Background(), seq2)
+	next := types.NewRowSequence(context.Background(), seq2)
 
 	var rows []types.Row
 	var gotError error
@@ -160,7 +161,7 @@ func TestRowIterator_ContextCancellation(t *testing.T) {
 		}
 	}
 
-	next := types.NewRowPull2(ctx, seq2)
+	next := types.NewRowSequence(ctx, seq2)
 
 	var rows []types.Row
 	count := 0
@@ -204,7 +205,7 @@ func TestRowIterator_EarlyBreak(t *testing.T) {
 
 	seq2 := createTestSeq2(records, nil)
 
-	next := types.NewRowPull2(context.Background(), seq2)
+	next := types.NewRowSequence(context.Background(), seq2)
 
 	// Read only one row then break
 	var rows []types.Row
@@ -234,7 +235,7 @@ func TestRowIterator_EmptyBatchHandling(t *testing.T) {
 	}()
 
 	seq2 := createTestSeq2(records, nil)
-	next := types.NewRowPull2(context.Background(), seq2)
+	next := types.NewRowSequence(context.Background(), seq2)
 
 	// Should skip empty batch and return row from second batch
 	var rows []types.Row
@@ -249,11 +250,9 @@ func TestRowIterator_EmptyBatchHandling(t *testing.T) {
 
 func TestRowIterator_DatabricksEOFBehavior(t *testing.T) {
 	// Test Databricks-specific behavior where io.EOF is sent as an error
-	// instead of using the ok=false flag to signal stream completion
-
-	// Create Seq2 that mimics Databricks behavior
+	// value rather than just ending the sequence. NewRowSequence treats
+	// io.EOF as clean termination.
 	seq2 := func(yield func(arrow.Record, error) bool) {
-		// Send some records
 		record1 := createTestRecord([]string{"row1", "row2"})
 		record1.Retain()
 		if !yield(record1, nil) {
@@ -268,11 +267,11 @@ func TestRowIterator_DatabricksEOFBehavior(t *testing.T) {
 			return
 		}
 
-		// Databricks sends io.EOF as error
-		// This should terminate the iteration without being treated as an error
+		// Databricks sends io.EOF as error — should terminate cleanly
+		yield(nil, io.EOF)
 	}
 
-	next := types.NewRowPull2(context.Background(), seq2)
+	next := types.NewRowSequence(context.Background(), seq2)
 
 	// Read all rows successfully
 	var rows []types.Row
@@ -302,7 +301,7 @@ func TestRowIterator_NilRecordReturnsError(t *testing.T) {
 		yield(nil, nil)
 	}
 
-	next := types.NewRowPull2(context.Background(), seq2)
+	next := types.NewRowSequence(context.Background(), seq2)
 
 	var rows []types.Row
 	var gotError error
@@ -354,7 +353,8 @@ func TestRowSeq2_DirectUsage(t *testing.T) {
 }
 
 func TestRowIterator_MultipleIterations(t *testing.T) {
-	// Test that we can iterate multiple times using the same iterator
+	// Test that ranging the same iterator twice works safely when the
+	// upstream is single-use (like a real gRPC stream).
 	records := []arrow.Record{
 		createTestRecord([]string{"row1", "row2"}),
 	}
@@ -365,8 +365,22 @@ func TestRowIterator_MultipleIterations(t *testing.T) {
 		}
 	}()
 
-	seq2 := createTestSeq2(records, nil)
-	next := types.NewRowPull2(context.Background(), seq2)
+	// Build a single-use upstream to simulate a gRPC stream.
+	exhausted := false
+	seq2 := func(yield func(arrow.Record, error) bool) {
+		if exhausted {
+			return
+		}
+		exhausted = true
+		for _, record := range records {
+			record.Retain()
+			if !yield(record, nil) {
+				return
+			}
+		}
+	}
+
+	next := types.NewRowSequence(context.Background(), seq2)
 
 	var rows1 []types.Row
 	for row, err := range next {
@@ -375,8 +389,7 @@ func TestRowIterator_MultipleIterations(t *testing.T) {
 	}
 	assert.Len(t, rows1, 2)
 
-	// Second iteration, Seq2 is a Pull2 so should be exhausted of rows to fetch
-	// https://pkg.go.dev/iter#Pull2 (Go doc defines this without an explicit type to split the difference)
+	// Second iteration — upstream exhausted, should yield nothing
 	var rows2 []types.Row
 	for row, err := range next {
 		require.NoError(t, err)

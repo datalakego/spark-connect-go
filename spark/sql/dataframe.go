@@ -200,12 +200,11 @@ type DataFrame interface {
 	// Sort returns a new DataFrame sorted by the specified columns.
 	Sort(ctx context.Context, columns ...column.Convertible) (DataFrame, error)
 	Stat() DataFrameStatFunctions
-	// StreamRows exposes a pull-based iterator over Arrow record batches from Spark types.RowPull2.
+	// StreamRows returns a lazy iterator over rows from Spark.
 	// No rows are fetched from Spark over gRPC until the previous one has been consumed.
 	// It provides no internal buffering: each Row is produced only when the caller
 	// requests it, ensuring client back-pressure is respected.
-	// types.RowPull2 is single use (can only be ranged once).
-	StreamRows(ctx context.Context) (types.RowPull2, error)
+	StreamRows(ctx context.Context) (iter.Seq2[types.Row, error], error)
 	// Subtract subtracts the other DataFrame from the current DataFrame. And only returns
 	// distinct rows.
 	Subtract(ctx context.Context, other DataFrame) DataFrame
@@ -942,7 +941,7 @@ func (df *dataFrameImpl) ToArrow(ctx context.Context) (*arrow.Table, error) {
 	return &table, nil
 }
 
-func (df *dataFrameImpl) StreamRows(ctx context.Context) (types.RowPull2, error) {
+func (df *dataFrameImpl) StreamRows(ctx context.Context) (iter.Seq2[types.Row, error], error) {
 	responseClient, err := df.session.client.ExecutePlan(ctx, df.createPlan())
 	if err != nil {
 		return nil, sparkerrors.WithType(fmt.Errorf("failed to execute plan: %w", err), sparkerrors.ExecutionError)
@@ -950,7 +949,7 @@ func (df *dataFrameImpl) StreamRows(ctx context.Context) (types.RowPull2, error)
 
 	seq2 := responseClient.ToRecordSequence(ctx)
 
-	return types.NewRowPull2(ctx, seq2), nil
+	return types.NewRowSequence(ctx, seq2), nil
 }
 
 func (df *dataFrameImpl) UnionAll(ctx context.Context, other DataFrame) DataFrame {

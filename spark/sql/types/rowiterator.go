@@ -5,12 +5,9 @@ import (
 	"errors"
 	"io"
 	"iter"
-	"sync/atomic"
 
 	"github.com/apache/arrow-go/v18/arrow"
 )
-
-type RowPull2 = iter.Seq2[Row, error]
 
 // NewRowSequence flattens record batches to a sequence of rows stream.
 func NewRowSequence(ctx context.Context, recordSeq iter.Seq2[arrow.Record, error]) iter.Seq2[Row, error] {
@@ -21,6 +18,13 @@ func NewRowSequence(ctx context.Context, recordSeq iter.Seq2[arrow.Record, error
 				_ = yield(nil, ctx.Err())
 				return
 			default:
+			}
+
+			// Treat io.EOF as clean stream termination. Some Spark
+			// implementations (notably Databricks clusters as of 05/2025)
+			// yield EOF as an error value instead of ending the sequence.
+			if errors.Is(recErr, io.EOF) {
+				return
 			}
 			if recErr != nil {
 				// forward upstream error once, then stop
@@ -44,44 +48,6 @@ func NewRowSequence(ctx context.Context, recordSeq iter.Seq2[arrow.Record, error
 				if !yield(row, nil) {
 					return
 				}
-			}
-		}
-	}
-}
-
-// NewRowPull2 iterates rows to be consumed at the clients leisure
-func NewRowPull2(ctx context.Context, recordSeq iter.Seq2[arrow.Record, error]) iter.Seq2[Row, error] {
-	// Build the push row stream first.
-	rows := NewRowSequence(ctx, recordSeq)
-
-	// Enforce single-use to prevent re-iteration after stop/close.
-	var used atomic.Bool
-
-	return func(yield func(Row, error) bool) {
-		if !used.CompareAndSwap(false, true) {
-			return
-		}
-
-		// Convert push -> pull using the iter idiom.
-		next, stop := iter.Pull2(rows)
-		defer stop()
-
-		for {
-			row, err, ok := next()
-			if !ok {
-				return
-			}
-
-			// Treat io.EOF as clean termination (don’t forward).
-			if errors.Is(err, io.EOF) {
-				return
-			}
-			if err != nil {
-				_ = yield(nil, err)
-				return
-			}
-			if !yield(row, nil) {
-				return
 			}
 		}
 	}
