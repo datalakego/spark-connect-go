@@ -54,7 +54,11 @@ func NewRowSequence(ctx context.Context, recordSeq iter.Seq2[arrow.Record, error
 			}
 
 			for row, err := range rowIterFromRecord(rec) {
-				if !yield(row, err) || err != nil {
+				if err != nil {
+					_ = yield(nil, err)
+					return
+				}
+				if !yield(row, nil) {
 					return
 				}
 			}

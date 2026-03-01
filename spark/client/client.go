@@ -438,7 +438,9 @@ func (c *ExecutePlanClient) ToTable() (*types.StructType, arrow.Table, error) {
 // ToRecordSequence returns a single Seq2 iterator that directly yields results as they arrive.
 func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arrow.Record, error] {
 	return func(yield func(arrow.Record, error) bool) {
-		// Track logical completion locally to avoid racing on shared struct state.
+		// Represents Spark's reattachable execution.
+		// Tracks logical completion locally to avoid racing on shared struct state.
+		// Spliced from ToTable. We may eventually want to DRY up these workflows.
 		done := false
 
 		for {
