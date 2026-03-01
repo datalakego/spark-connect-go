@@ -9,6 +9,24 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 )
 
+// rowIterFromRecord converts an Arrow record into a row iterator,
+// releasing the record when iteration completes or the consumer stops.
+func rowIterFromRecord(rec arrow.Record) iter.Seq2[Row, error] {
+	return func(yield func(Row, error) bool) {
+		defer rec.Release()
+		rows, err := ReadArrowRecordToRows(rec)
+		if err != nil {
+			_ = yield(nil, err)
+			return
+		}
+		for _, row := range rows {
+			if !yield(row, nil) {
+				return
+			}
+		}
+	}
+}
+
 // NewRowSequence flattens record batches to a sequence of rows stream.
 func NewRowSequence(ctx context.Context, recordSeq iter.Seq2[arrow.Record, error]) iter.Seq2[Row, error] {
 	return func(yield func(Row, error) bool) {
@@ -27,7 +45,6 @@ func NewRowSequence(ctx context.Context, recordSeq iter.Seq2[arrow.Record, error
 				return
 			}
 			if recErr != nil {
-				// forward upstream error once, then stop
 				_ = yield(nil, recErr)
 				return
 			}
@@ -36,16 +53,8 @@ func NewRowSequence(ctx context.Context, recordSeq iter.Seq2[arrow.Record, error
 				return
 			}
 
-			rows, err := func() ([]Row, error) {
-				defer rec.Release()
-				return ReadArrowRecordToRows(rec)
-			}()
-			if err != nil {
-				_ = yield(nil, err)
-				return
-			}
-			for _, row := range rows {
-				if !yield(row, nil) {
+			for row, err := range rowIterFromRecord(rec) {
+				if !yield(row, err) || err != nil {
 					return
 				}
 			}
