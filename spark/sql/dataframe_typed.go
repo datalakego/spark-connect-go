@@ -90,16 +90,39 @@ func (d *DataFrameOf[T]) clone() *DataFrameOf[T] {
 	return &cp
 }
 
-// SqlTyped runs a SQL query and returns a typed DataFrame over the
-// result. Equivalent to SparkSession.Sql followed by a struct-tag-
-// driven scanner at every row — except the plan is computed once
-// and reused for every Collect call on the returned value.
-func SqlTyped[T any](ctx context.Context, session SparkSession, query string) (*DataFrameOf[T], error) {
+// SqlAs runs a SQL query and returns a typed Dataset over the result.
+// Equivalent to session.Sql followed by a struct-tag-driven scanner
+// at every row — except the plan is computed once and reused for
+// every Collect / Stream / First call on the returned Dataset.
+//
+// Free function rather than a method on SparkSession because Go
+// doesn't permit type parameters on interface methods. The session
+// is supplied as the second arg.
+func SqlAs[T any](ctx context.Context, session SparkSession, query string) (*DataFrameOf[T], error) {
 	df, err := session.Sql(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	return TypedDataFrame[T](df)
+}
+
+// TableAs returns a typed Dataset over a named catalog table. Same
+// shape as SqlAs but addressed by table name instead of ad-hoc SQL.
+// Convenience over session.Table + TypedDataFrame[T].
+func TableAs[T any](ctx context.Context, session SparkSession, name string) (*DataFrameOf[T], error) {
+	df, err := session.Table(name)
+	if err != nil {
+		return nil, err
+	}
+	return TypedDataFrame[T](df)
+}
+
+// SqlTyped is the legacy name for SqlAs, kept for source
+// compatibility with pre-1.0 callers. Prefer SqlAs in new code.
+//
+// Deprecated: use SqlAs.
+func SqlTyped[T any](ctx context.Context, session SparkSession, query string) (*DataFrameOf[T], error) {
+	return SqlAs[T](ctx, session, query)
 }
 
 // TypedDataFrame wraps an existing DataFrame in the typed surface.
