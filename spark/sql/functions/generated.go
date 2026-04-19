@@ -15,7 +15,7 @@
 
 package functions
 
-import "github.com/apache/spark-connect-go/spark/sql/column"
+import "github.com/caldempsey/spark-connect-go/spark/sql/column"
 
 // BitwiseNOT - Computes bitwise not.
 //

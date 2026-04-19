@@ -30,8 +30,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	proto "github.com/apache/spark-connect-go/internal/generated"
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	proto "github.com/caldempsey/spark-connect-go/internal/generated"
+	"github.com/caldempsey/spark-connect-go/spark/sql/types"
 )
 
 func TestShowArrowBatchData(t *testing.T) {

@@ -21,15 +21,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/apache/spark-connect-go/spark/sql/utils"
+	"github.com/caldempsey/spark-connect-go/spark/sql/utils"
 
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	"github.com/caldempsey/spark-connect-go/spark/sql/types"
 
-	"github.com/apache/spark-connect-go/spark/sql/column"
+	"github.com/caldempsey/spark-connect-go/spark/sql/column"
 
-	"github.com/apache/spark-connect-go/spark/sql/functions"
+	"github.com/caldempsey/spark-connect-go/spark/sql/functions"
 
-	"github.com/apache/spark-connect-go/spark/sql"
+	"github.com/caldempsey/spark-connect-go/spark/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
