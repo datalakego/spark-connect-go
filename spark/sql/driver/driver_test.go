@@ -16,10 +16,8 @@
 package driver
 
 import (
-	"context"
 	"database/sql"
 	"database/sql/driver"
-	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -37,36 +35,6 @@ func TestParseDSN_AcceptsPlainSc(t *testing.T) {
 	if cfg.sparkDSN != "sc://localhost:15002" {
 		t.Errorf("sparkDSN = %q", cfg.sparkDSN)
 	}
-	if cfg.format != "" {
-		t.Errorf("format = %q, want empty", cfg.format)
-	}
-}
-
-func TestParseDSN_ParsesFormatParameter(t *testing.T) {
-	cfg, err := parseDSN("sc://localhost:15002?format=iceberg")
-	if err != nil {
-		t.Fatalf("parseDSN: %v", err)
-	}
-	if cfg.format != "iceberg" {
-		t.Errorf("format = %q, want iceberg", cfg.format)
-	}
-}
-
-func TestParseDSN_NormalisesFormatCase(t *testing.T) {
-	cfg, err := parseDSN("sc://localhost:15002?format=DELTA")
-	if err != nil {
-		t.Fatalf("parseDSN: %v", err)
-	}
-	if cfg.format != "delta" {
-		t.Errorf("format = %q, want delta (lowercased)", cfg.format)
-	}
-}
-
-func TestParseDSN_RejectsUnknownFormat(t *testing.T) {
-	_, err := parseDSN("sc://localhost:15002?format=duckdb")
-	if err == nil || !strings.Contains(err.Error(), "unsupported format") {
-		t.Errorf("err = %v, want unsupported-format error", err)
-	}
 }
 
 func TestParseDSN_RejectsMissingSchemePrefix(t *testing.T) {
@@ -83,16 +51,19 @@ func TestParseDSN_RejectsEmpty(t *testing.T) {
 	}
 }
 
-func TestParseDSN_PreservesTokenInSparkDSN(t *testing.T) {
-	// The token parameter is meaningful to the downstream session
-	// builder; the driver itself doesn't interpret it but must not
-	// strip it from the DSN forwarded to NewSessionBuilder().Remote.
-	cfg, err := parseDSN("sc://host:15002?token=secret&format=iceberg")
+func TestParseDSN_PreservesQueryParamsInSparkDSN(t *testing.T) {
+	// The driver does not interpret query parameters — not `token`,
+	// not anything else. Parameters must round-trip unchanged into
+	// sparkDSN so the upstream SparkSessionBuilder.Remote sees them.
+	cfg, err := parseDSN("sc://host:15002?token=secret&user=alice")
 	if err != nil {
 		t.Fatalf("parseDSN: %v", err)
 	}
 	if !strings.Contains(cfg.sparkDSN, "token=secret") {
 		t.Errorf("sparkDSN should carry token unchanged; got %q", cfg.sparkDSN)
+	}
+	if !strings.Contains(cfg.sparkDSN, "user=alice") {
+		t.Errorf("sparkDSN should carry user unchanged; got %q", cfg.sparkDSN)
 	}
 }
 
@@ -121,29 +92,14 @@ func TestDriver_OpenConnectorInvalidDSN(t *testing.T) {
 	}
 }
 
-// --- stmt argument rejection ---------------------------------------
-//
-// v0 doesn't implement parameter binding. Callers that pass args
-// should see the errArgsUnsupported sentinel before any server call
-// fires.
+// Parameter binding coverage lives in render_test.go. Here we only
+// pin that NumInput returns -1 so database/sql passes args through
+// untouched instead of rejecting them up front.
 
-func TestStmt_ExecContextRejectsArgs(t *testing.T) {
-	s := &stmt{conn: &conn{}, query: "SELECT 1"}
-	_, err := s.ExecContext(context.Background(), []driver.NamedValue{
-		{Ordinal: 1, Value: 42},
-	})
-	if err == nil || !errors.Is(err, errArgsUnsupported) {
-		t.Errorf("ExecContext with args err = %v, want errArgsUnsupported", err)
-	}
-}
-
-func TestStmt_QueryContextRejectsArgs(t *testing.T) {
-	s := &stmt{conn: &conn{}, query: "SELECT 1"}
-	_, err := s.QueryContext(context.Background(), []driver.NamedValue{
-		{Ordinal: 1, Value: "x"},
-	})
-	if err == nil || !errors.Is(err, errArgsUnsupported) {
-		t.Errorf("QueryContext with args err = %v, want errArgsUnsupported", err)
+func TestStmt_NumInputIsNegativeOne(t *testing.T) {
+	s := &stmt{}
+	if got := s.NumInput(); got != -1 {
+		t.Errorf("NumInput = %d, want -1 (database/sql should not pre-count args)", got)
 	}
 }
 

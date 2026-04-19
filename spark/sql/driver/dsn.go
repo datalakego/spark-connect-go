@@ -18,40 +18,29 @@ package driver
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 )
 
-// dsnConfig is the parsed DSN. Kept minimal — the Spark Connect
-// session builder wants the original URL verbatim, so the config
-// mostly exists to surface query-parameter knobs (format, token)
-// that downstream tools want to read without re-parsing the DSN.
+// dsnConfig is the parsed DSN. The driver is a boring transport
+// layer — it stays out of table-format concerns (Iceberg vs Delta
+// vs parquet) and keeps the original URL intact for the Spark
+// Connect session builder to interpret.
 type dsnConfig struct {
 	// sparkDSN is what gets passed to NewSessionBuilder().Remote(...).
-	// Includes any `?token=` fragment if present.
+	// Includes any `?token=` or other query fragment verbatim so the
+	// upstream builder sees the URL exactly as the caller wrote it.
 	sparkDSN string
-
-	// format is the value of the `format` query parameter ("iceberg"
-	// / "delta" / empty). Driver ignores it; consumers that need
-	// dialect-aware DDL read it via the exported Connector.Format()
-	// accessor.
-	format string
 }
 
-// parseDSN accepts the sc:// Spark Connect URL form with optional
-// query parameters. Returns an error for malformed input.
+// parseDSN accepts the `sc://host:port[?token=...]` Spark Connect
+// URL form. The driver does not interpret query parameters beyond
+// validating the scheme — any `token`, `user`, or future Spark
+// Connect flag rides through in `sparkDSN` untouched.
 //
-// Recognised query parameters:
-//
-//   - token: bearer token forwarded to the Spark Connect server in
-//     the Authorization header. Preserved in sparkDSN verbatim so
-//     the session builder picks it up.
-//   - format: lakehouse table format ("iceberg" | "delta"). Driver-
-//     layer passthrough; used by consumers like goose-spark to pick
-//     a dialect-appropriate CREATE TABLE.
-//
-// Unrecognised parameters are ignored (preserved in the DSN as-is)
-// so the driver doesn't fight with future Spark Connect flags.
+// Table format selection (Iceberg, Delta, parquet) is explicitly
+// NOT a driver concern. Migrations and application SQL pick format
+// via Spark's native `USING <format>` DDL clause; the transport
+// layer stays boring and reusable.
 func parseDSN(dsn string) (*dsnConfig, error) {
 	if dsn == "" {
 		return nil, errors.New("spark driver: DSN is required")
@@ -59,18 +48,5 @@ func parseDSN(dsn string) (*dsnConfig, error) {
 	if !strings.HasPrefix(dsn, "sc://") {
 		return nil, fmt.Errorf("spark driver: DSN must start with sc://, got %q", dsn)
 	}
-	u, err := url.Parse(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("spark driver: parse DSN: %w", err)
-	}
-
-	cfg := &dsnConfig{
-		sparkDSN: dsn,
-		format:   strings.ToLower(u.Query().Get("format")),
-	}
-	if cfg.format != "" && cfg.format != "iceberg" && cfg.format != "delta" {
-		return nil, fmt.Errorf(
-			"spark driver: unsupported format %q; expected iceberg or delta", cfg.format)
-	}
-	return cfg, nil
+	return &dsnConfig{sparkDSN: dsn}, nil
 }

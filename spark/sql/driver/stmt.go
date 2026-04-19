@@ -18,7 +18,6 @@ package driver
 import (
 	"context"
 	"database/sql/driver"
-	"errors"
 )
 
 // stmt wraps one query string against a conn. The driver doesn't
@@ -40,15 +39,14 @@ type stmt struct {
 // Implements database/sql/driver.Stmt.
 func (*stmt) Close() error { return nil }
 
-// NumInput reports the number of placeholders this statement
-// expects. v0 doesn't support parameter binding, so we return 0
-// and reject non-empty arg slices in ExecContext / QueryContext.
-// goose's generated SQL (CreateVersionTable / InsertVersion) and
-// hand-authored migration files don't use placeholders, so this
-// limitation isn't felt in practice.
+// NumInput reports -1 — "driver doesn't know the number of
+// placeholders." The renderer parses `$N` tokens inline at Exec /
+// Query time, so the sql package's up-front arg-count check doesn't
+// apply. Returning -1 tells database/sql to hand any arg count
+// through unchanged.
 //
 // Implements database/sql/driver.Stmt.
-func (*stmt) NumInput() int { return 0 }
+func (*stmt) NumInput() int { return -1 }
 
 // Exec is the legacy (non-context) Exec entry. Implements
 // database/sql/driver.Stmt.
@@ -75,13 +73,18 @@ func (s *stmt) Query(args []driver.Value) (driver.Rows, error) {
 // that metric reliably at the session.Sql layer. database/sql
 // allows -1 per the driver.Result docs.
 //
+// Arguments are rendered into the query at $N placeholders before
+// the session call fires; Spark Connect's protocol-level parameter
+// binding doesn't round-trip reliably across every supported Spark
+// version, so client-side rendering is the compatible path.
+//
 // Implements database/sql/driver.StmtExecContext.
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	if len(args) > 0 {
-		return nil, errArgsUnsupported
-	}
-	_, err := s.conn.session.Sql(ctx, s.query)
+	q, err := render(s.query, args)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.conn.session.Sql(ctx, q); err != nil {
 		return nil, err
 	}
 	return result{}, nil
@@ -93,12 +96,16 @@ func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 // fires) this is right-sized; large result sets should bypass the
 // driver and use the native DataFrame / iter.Seq2 path directly.
 //
+// Arguments are rendered into the query at $N placeholders before
+// the session call fires — see ExecContext for rationale.
+//
 // Implements database/sql/driver.StmtQueryContext.
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	if len(args) > 0 {
-		return nil, errArgsUnsupported
+	q, err := render(s.query, args)
+	if err != nil {
+		return nil, err
 	}
-	df, err := s.conn.session.Sql(ctx, s.query)
+	df, err := s.conn.session.Sql(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -108,9 +115,3 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	}
 	return newRows(rows), nil
 }
-
-// errArgsUnsupported is the v0 signal that parameter binding isn't
-// implemented. Sentinel so callers can errors.Is on it.
-var errArgsUnsupported = errors.New(
-	"spark driver: parameter binding is not supported in v0; interpolate values into the SQL string or upgrade when v1 ships",
-)
