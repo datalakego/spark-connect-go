@@ -28,6 +28,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	proto "github.com/caldempsey/spark-connect-go/internal/generated"
 	"github.com/caldempsey/spark-connect-go/spark/client"
@@ -190,4 +191,20 @@ func TestWriteResultStreamsArrowResultToCollector(t *testing.T) {
 	vals := rows[1].Values()
 	assert.NoError(t, err)
 	assert.Equal(t, []any{"str2"}, vals)
+}
+
+// TestSessionBuilder_WithDialOptions_Forwarded asserts that
+// caller-supplied grpc.DialOption values are forwarded to the
+// channel builder the session creates. We build against a bogus
+// endpoint and don't dial — grpc.NewClient is lazy and doesn't open
+// a connection until the first RPC, so the interesting surface is
+// that WithDialOptions composes into the builder's state without
+// error.
+func TestSessionBuilder_WithDialOptions_Forwarded(t *testing.T) {
+	ctx := context.Background()
+	_, err := NewSessionBuilder().
+		Remote("sc://localhost").
+		WithDialOptions(grpc.WithUserAgent("dorm-test")).
+		Build(ctx)
+	assert.NoError(t, err)
 }

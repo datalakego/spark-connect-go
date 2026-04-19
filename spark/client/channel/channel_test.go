@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
 
 	"github.com/caldempsey/spark-connect-go/spark/client/channel"
 	"github.com/caldempsey/spark-connect-go/spark/sparkerrors"
@@ -111,4 +112,29 @@ func TestChannelBulder_UserAgent(t *testing.T) {
 	assert.True(t, strings.Contains(cb.UserAgent(), "go/"))
 	assert.True(t, strings.Contains(cb.UserAgent(), "spark/"))
 	assert.True(t, strings.Contains(cb.UserAgent(), "os/"))
+}
+
+// TestChannelBuilder_WithDialOptions_CompilesAndBuilds is a smoke
+// test: the builder accepts caller-supplied grpc.DialOption values,
+// stores them, and a subsequent Build produces a live ClientConn
+// without panicking. We assert the returned conn is non-nil rather
+// than exercising the wire — grpc.NewClient is lazy and doesn't dial
+// until the first RPC, so a stricter assertion would spin up a
+// server here.
+func TestChannelBuilder_WithDialOptions_CompilesAndBuilds(t *testing.T) {
+	cb, err := channel.NewBuilder("sc://localhost")
+	assert.NoError(t, err)
+
+	// Representative knobs: raise the per-call ceiling further than
+	// the builder's own default, and give the connection a keepalive
+	// profile. Neither changes observable behaviour in this unit
+	// test, but both have to survive the builder round-trip.
+	cb.WithDialOptions(
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(2<<30)),
+		grpc.WithUserAgent("dorm-test"),
+	)
+
+	conn, err := cb.Build(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, conn)
 }
