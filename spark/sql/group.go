@@ -19,12 +19,12 @@ package sql
 import (
 	"context"
 
-	"github.com/caldempsey/spark-connect-go/spark/sql/types"
+	"github.com/datalakego/spark-connect-go/spark/sql/types"
 
-	proto "github.com/caldempsey/spark-connect-go/internal/generated"
-	"github.com/caldempsey/spark-connect-go/spark/sparkerrors"
-	"github.com/caldempsey/spark-connect-go/spark/sql/column"
-	"github.com/caldempsey/spark-connect-go/spark/sql/functions"
+	proto "github.com/datalakego/spark-connect-go/internal/generated"
+	"github.com/datalakego/spark-connect-go/spark/sparkerrors"
+	"github.com/datalakego/spark-connect-go/spark/sql/column"
+	"github.com/datalakego/spark-connect-go/spark/sql/functions"
 )
 
 type GroupedData struct {

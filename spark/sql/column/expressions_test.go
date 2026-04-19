@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	proto "github.com/caldempsey/spark-connect-go/internal/generated"
+	proto "github.com/datalakego/spark-connect-go/internal/generated"
 	"github.com/stretchr/testify/assert"
 )
 

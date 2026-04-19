@@ -24,8 +24,8 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 
-	"github.com/caldempsey/spark-connect-go/spark/client/channel"
-	"github.com/caldempsey/spark-connect-go/spark/sparkerrors"
+	"github.com/datalakego/spark-connect-go/spark/client/channel"
+	"github.com/datalakego/spark-connect-go/spark/sparkerrors"
 	"github.com/stretchr/testify/assert"
 )
 

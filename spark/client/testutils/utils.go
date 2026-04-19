@@ -19,7 +19,7 @@ import (
 	"context"
 	"testing"
 
-	proto "github.com/caldempsey/spark-connect-go/internal/generated"
+	proto "github.com/datalakego/spark-connect-go/internal/generated"
 	"google.golang.org/grpc"
 )
 

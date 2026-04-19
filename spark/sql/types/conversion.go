@@ -19,8 +19,8 @@ package types
 import (
 	"errors"
 
-	"github.com/caldempsey/spark-connect-go/internal/generated"
-	"github.com/caldempsey/spark-connect-go/spark/sparkerrors"
+	"github.com/datalakego/spark-connect-go/internal/generated"
+	"github.com/datalakego/spark-connect-go/spark/sparkerrors"
 )
 
 func ConvertProtoDataTypeToStructType(input *generated.DataType) (*StructType, error) {
