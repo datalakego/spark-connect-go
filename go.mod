@@ -15,7 +15,7 @@
 
 module github.com/caldempsey/spark-connect-go
 
-go 1.23.2
+go 1.24
 
 require (
 	github.com/apache/arrow-go/v18 v18.4.0
