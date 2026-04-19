@@ -368,15 +368,6 @@ func (c *ExecutePlanClient) ToTable() (*types.StructType, arrow.Table, error) {
 	c.done = false
 	for {
 		resp, err := c.responseStream.Recv()
-		if err != nil {
-			fmt.Printf("DEBUG: Recv error: %v, is EOF: %v\n", err, errors.Is(err, io.EOF))
-		}
-		if err == nil && resp != nil {
-			fmt.Printf("DEBUG: Received response type: %T\n", resp.ResponseType)
-			if _, ok := resp.ResponseType.(*proto.ExecutePlanResponse_ResultComplete_); ok {
-				fmt.Println("DEBUG: Got ResultComplete!")
-			}
-		}
 		// EOF is received when the last message has been processed and the stream
 		// finished normally.
 		if errors.Is(err, io.EOF) {

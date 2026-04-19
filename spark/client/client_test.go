@@ -19,6 +19,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"os"
 	"testing"
 	"time"
 
@@ -1002,4 +1004,54 @@ func collectRecords(t *testing.T, recordChan <-chan arrow.Record, errorChan <-ch
 			t.Fatal("Test timed out collecting records")
 		}
 	}
+}
+
+// TestExecutePlan_DoesNotWriteToStdout captures process stdout while
+// a complete ExecutePlan round-trip runs and asserts nothing lands
+// on it. The client is a library; stdout belongs to the host. This
+// regression test pins that contract — without it a stray fmt.Print
+// would land silently and downstream services would wake up to
+// protocol chatter in their logs.
+func TestExecutePlan_DoesNotWriteToStdout(t *testing.T) {
+	ctx := context.Background()
+
+	originalStdout := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = originalStdout })
+
+	captured := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		captured <- buf.String()
+	}()
+
+	c := client.NewTestConnectClientFromResponses(mocks.MockSessionId, &mocks.ExecutePlanResponseEOF)
+
+	stream, err := c.ExecutePlan(ctx, mocks.NewSqlCommand("select 1"))
+	require.NoError(t, err)
+
+	recordChan, errorChan, _ := stream.ToRecordBatches(ctx)
+
+	// Drain the stream; we only care about stdout side effects here.
+	timeout := time.After(100 * time.Millisecond)
+loop:
+	for {
+		select {
+		case _, ok := <-recordChan:
+			if !ok {
+				break loop
+			}
+		case <-errorChan:
+		case <-timeout:
+			t.Fatal("drain timed out")
+		}
+	}
+
+	require.NoError(t, w.Close())
+	output := <-captured
+	assert.Empty(t, output,
+		"ExecutePlan wrote to stdout; the client must not produce protocol chatter on the host's stdout")
 }
