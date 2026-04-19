@@ -22,11 +22,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/caldempsey/spark-connect-go/spark/client/options"
+	"github.com/datalakego/spark-connect-go/spark/client/options"
 
-	"github.com/caldempsey/spark-connect-go/spark/client/testutils"
-	"github.com/caldempsey/spark-connect-go/spark/mocks"
-	"github.com/caldempsey/spark-connect-go/spark/sparkerrors"
+	"github.com/datalakego/spark-connect-go/spark/client/testutils"
+	"github.com/datalakego/spark-connect-go/spark/mocks"
+	"github.com/datalakego/spark-connect-go/spark/sparkerrors"
 
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/codes"

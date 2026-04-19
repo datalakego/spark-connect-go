@@ -19,11 +19,11 @@ import (
 	"context"
 	"iter"
 
-	"github.com/caldempsey/spark-connect-go/spark/sql/utils"
+	"github.com/datalakego/spark-connect-go/spark/sql/utils"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/caldempsey/spark-connect-go/internal/generated"
-	"github.com/caldempsey/spark-connect-go/spark/sql/types"
+	"github.com/datalakego/spark-connect-go/internal/generated"
+	"github.com/datalakego/spark-connect-go/spark/sql/types"
 )
 
 type SparkConnectRPCClient generated.SparkConnectServiceClient

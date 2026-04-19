@@ -20,11 +20,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/caldempsey/spark-connect-go/spark/sql/types"
+	"github.com/datalakego/spark-connect-go/spark/sql/types"
 
-	"github.com/caldempsey/spark-connect-go/spark/sparkerrors"
+	"github.com/datalakego/spark-connect-go/spark/sparkerrors"
 
-	proto "github.com/caldempsey/spark-connect-go/internal/generated"
+	proto "github.com/datalakego/spark-connect-go/internal/generated"
 )
 
 func newProtoExpression() *proto.Expression {

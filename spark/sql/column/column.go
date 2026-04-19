@@ -18,9 +18,9 @@ package column
 import (
 	"context"
 
-	"github.com/caldempsey/spark-connect-go/spark/sql/types"
+	"github.com/datalakego/spark-connect-go/spark/sql/types"
 
-	proto "github.com/caldempsey/spark-connect-go/internal/generated"
+	proto "github.com/datalakego/spark-connect-go/internal/generated"
 )
 
 // Convertible is the interface for all things that can be converted into a protobuf expression.

@@ -22,12 +22,12 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/caldempsey/spark-connect-go/spark/sql/types"
+	"github.com/datalakego/spark-connect-go/spark/sql/types"
 
-	"github.com/caldempsey/spark-connect-go/spark/sql/functions"
+	"github.com/datalakego/spark-connect-go/spark/sql/functions"
 
-	"github.com/caldempsey/spark-connect-go/spark/sql"
-	"github.com/caldempsey/spark-connect-go/spark/sql/utils"
+	"github.com/datalakego/spark-connect-go/spark/sql"
+	"github.com/datalakego/spark-connect-go/spark/sql/utils"
 )
 
 var (

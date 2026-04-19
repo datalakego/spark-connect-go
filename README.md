@@ -17,7 +17,7 @@ Step 3: Run the following commands to setup the Spark Connect client.
 Building with Spark in case you need to re-generate the source files from the proto sources.
 
 ```
-git clone https://github.com/caldempsey/spark-connect-go.git
+git clone https://github.com/datalakego/spark-connect-go.git
 git submodule update --init --recursive
 
 make gen && make test
@@ -27,7 +27,7 @@ make gen && make test
 Building without Spark
 
 ```
-git clone https://github.com/caldempsey/spark-connect-go.git
+git clone https://github.com/datalakego/spark-connect-go.git
 make && make test
 ```
 
