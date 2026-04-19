@@ -22,7 +22,7 @@
 //
 //	import (
 //	    "database/sql"
-//	    _ "github.com/datalakego/spark-connect-go/spark/sql/driver"
+//	    _ "github.com/datalake-go/spark-connect-go/spark/sql/driver"
 //	)
 //
 //	db, err := sql.Open("spark", "sc://localhost:15002?format=iceberg")
@@ -65,7 +65,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 
-	sparksql "github.com/datalakego/spark-connect-go/spark/sql"
+	sparksql "github.com/datalake-go/spark-connect-go/spark/sql"
 )
 
 // init registers the driver under the name "spark". Consumers that

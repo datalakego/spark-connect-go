@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/datalakego/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 )
 
 // --- DSN parsing ---------------------------------------------------

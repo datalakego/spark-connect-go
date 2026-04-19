@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/datalakego/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 )
 
 func TestRowIterator_BasicIteration(t *testing.T) {

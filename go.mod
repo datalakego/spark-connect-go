@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-module github.com/datalakego/spark-connect-go
+module github.com/datalake-go/spark-connect-go
 
 go 1.24
 

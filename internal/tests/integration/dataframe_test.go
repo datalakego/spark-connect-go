@@ -21,15 +21,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/datalakego/spark-connect-go/spark/sql/utils"
+	"github.com/datalake-go/spark-connect-go/spark/sql/utils"
 
-	"github.com/datalakego/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 
-	"github.com/datalakego/spark-connect-go/spark/sql/column"
+	"github.com/datalake-go/spark-connect-go/spark/sql/column"
 
-	"github.com/datalakego/spark-connect-go/spark/sql/functions"
+	"github.com/datalake-go/spark-connect-go/spark/sql/functions"
 
-	"github.com/datalakego/spark-connect-go/spark/sql"
+	"github.com/datalake-go/spark-connect-go/spark/sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

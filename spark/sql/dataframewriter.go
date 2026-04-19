@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	proto "github.com/datalakego/spark-connect-go/internal/generated"
-	"github.com/datalakego/spark-connect-go/spark/sparkerrors"
+	proto "github.com/datalake-go/spark-connect-go/internal/generated"
+	"github.com/datalake-go/spark-connect-go/spark/sparkerrors"
 )
 
 // DataFrameWriter supports writing data frame to storage.

@@ -30,11 +30,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	proto "github.com/datalakego/spark-connect-go/internal/generated"
-	"github.com/datalakego/spark-connect-go/spark/client"
-	"github.com/datalakego/spark-connect-go/spark/client/testutils"
-	"github.com/datalakego/spark-connect-go/spark/mocks"
-	"github.com/datalakego/spark-connect-go/spark/sparkerrors"
+	proto "github.com/datalake-go/spark-connect-go/internal/generated"
+	"github.com/datalake-go/spark-connect-go/spark/client"
+	"github.com/datalake-go/spark-connect-go/spark/client/testutils"
+	"github.com/datalake-go/spark-connect-go/spark/mocks"
+	"github.com/datalake-go/spark-connect-go/spark/sparkerrors"
 )
 
 func TestSparkSessionTable(t *testing.T) {

@@ -22,7 +22,7 @@ import (
 	"log"
 	"time"
 
-	proto "github.com/datalakego/spark-connect-go/internal/generated"
+	proto "github.com/datalake-go/spark-connect-go/internal/generated"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

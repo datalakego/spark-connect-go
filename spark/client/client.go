@@ -21,24 +21,24 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/datalakego/spark-connect-go/spark/sql/utils"
+	"github.com/datalake-go/spark-connect-go/spark/sql/utils"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/datalakego/spark-connect-go/spark/client/base"
-	"github.com/datalakego/spark-connect-go/spark/mocks"
+	"github.com/datalake-go/spark-connect-go/spark/client/base"
+	"github.com/datalake-go/spark-connect-go/spark/mocks"
 
-	"github.com/datalakego/spark-connect-go/spark/client/options"
+	"github.com/datalake-go/spark-connect-go/spark/client/options"
 
 	"github.com/google/uuid"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
-	"github.com/datalakego/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 
-	proto "github.com/datalakego/spark-connect-go/internal/generated"
-	"github.com/datalakego/spark-connect-go/spark/sparkerrors"
+	proto "github.com/datalake-go/spark-connect-go/internal/generated"
+	"github.com/datalake-go/spark-connect-go/spark/sparkerrors"
 )
 
 type sparkConnectClientImpl struct {

@@ -20,7 +20,7 @@ import (
 	"database/sql/driver"
 	"errors"
 
-	sparksql "github.com/datalakego/spark-connect-go/spark/sql"
+	sparksql "github.com/datalake-go/spark-connect-go/spark/sql"
 )
 
 // conn is the per-logical-connection state database/sql keeps in its

@@ -15,7 +15,7 @@
 
 package utils
 
-import proto "github.com/datalakego/spark-connect-go/internal/generated"
+import proto "github.com/datalake-go/spark-connect-go/internal/generated"
 
 type ExplainMode int
 

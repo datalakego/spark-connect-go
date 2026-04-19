@@ -22,7 +22,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 
-	"github.com/datalakego/spark-connect-go/spark/sql"
+	"github.com/datalake-go/spark-connect-go/spark/sql"
 )
 
 func connect() (context.Context, sql.SparkSession) {

@@ -16,8 +16,8 @@
 package functions
 
 import (
-	"github.com/datalakego/spark-connect-go/spark/sql/column"
-	"github.com/datalakego/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/column"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 )
 
 func Expr(expr string) column.Column {

@@ -20,13 +20,13 @@ import (
 	"bytes"
 	"fmt"
 
-	proto "github.com/datalakego/spark-connect-go/internal/generated"
+	proto "github.com/datalake-go/spark-connect-go/internal/generated"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
 
-	"github.com/datalakego/spark-connect-go/spark/sparkerrors"
+	"github.com/datalake-go/spark-connect-go/spark/sparkerrors"
 )
 
 func ReadArrowTableToRows(table arrow.Table) ([]Row, error) {
