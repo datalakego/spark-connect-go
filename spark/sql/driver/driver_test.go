@@ -158,15 +158,16 @@ type rowFake struct {
 	vals  []any
 }
 
-func (r rowFake) FieldNames() []string           { return r.names }
-func (r rowFake) Values() []any                  { return r.vals }
-func (r rowFake) Len() int                       { return len(r.vals) }
+func (r rowFake) FieldNames() []string { return r.names }
+func (r rowFake) Values() []any        { return r.vals }
+func (r rowFake) Len() int             { return len(r.vals) }
 func (r rowFake) At(i int) any {
 	if i < 0 || i >= len(r.vals) {
 		return nil
 	}
 	return r.vals[i]
 }
+
 func (r rowFake) Value(name string) any {
 	for i, n := range r.names {
 		if n == name {
