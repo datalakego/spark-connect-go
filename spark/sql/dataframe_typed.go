@@ -58,6 +58,36 @@ import (
 type DataFrameOf[T any] struct {
 	df   DataFrame
 	plan *rowPlan
+	ops  []datasetOp // lazy Where/Limit/OrderBy transforms; applied on materialise
+}
+
+// datasetOp is a pending transform on the underlying DataFrame. Ops
+// are queued by the chainable Where/Limit/OrderBy methods and applied
+// at Collect/Stream/First time so the fluent builder stays ctx-free.
+type datasetOp func(ctx context.Context, df DataFrame) (DataFrame, error)
+
+// resolveDataFrame applies every queued op in declaration order and
+// returns the final DataFrame. Used by Collect/Stream/First to get a
+// materialisable handle.
+func (d *DataFrameOf[T]) resolveDataFrame(ctx context.Context) (DataFrame, error) {
+	df := d.df
+	for _, op := range d.ops {
+		next, err := op(ctx, df)
+		if err != nil {
+			return nil, err
+		}
+		df = next
+	}
+	return df, nil
+}
+
+// clone returns a shallow copy of d with a freshly allocated ops
+// slice so that chained operations don't share state with the parent.
+// Chainable methods return the clone.
+func (d *DataFrameOf[T]) clone() *DataFrameOf[T] {
+	cp := *d
+	cp.ops = append([]datasetOp(nil), d.ops...)
+	return &cp
 }
 
 // SqlTyped runs a SQL query and returns a typed DataFrame over the
@@ -101,7 +131,11 @@ func (d *DataFrameOf[T]) DataFrame() DataFrame { return d.df }
 // result sets should project narrower on the SQL side or drop to
 // the untyped streaming path via DataFrame().
 func (d *DataFrameOf[T]) Collect(ctx context.Context) ([]T, error) {
-	rows, err := d.df.Collect(ctx)
+	df, err := d.resolveDataFrame(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := df.Collect(ctx)
 	if err != nil {
 		return nil, err
 	}
