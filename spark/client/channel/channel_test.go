@@ -23,8 +23,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/apache/spark-connect-go/spark/client/channel"
-	"github.com/apache/spark-connect-go/spark/sparkerrors"
+	"github.com/caldempsey/spark-connect-go/spark/client/channel"
+	"github.com/caldempsey/spark-connect-go/spark/sparkerrors"
 	"github.com/stretchr/testify/assert"
 )
 

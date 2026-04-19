@@ -18,8 +18,8 @@ package client
 import (
 	"context"
 
-	proto "github.com/apache/spark-connect-go/internal/generated"
-	"github.com/apache/spark-connect-go/spark/client/base"
+	proto "github.com/caldempsey/spark-connect-go/internal/generated"
+	"github.com/caldempsey/spark-connect-go/spark/client/base"
 )
 
 // Public interface RuntimeConfig

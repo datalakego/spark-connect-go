@@ -22,14 +22,14 @@ import (
 	"math/rand/v2"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/apache/spark-connect-go/spark/sql/utils"
+	"github.com/caldempsey/spark-connect-go/spark/sql/utils"
 
-	"github.com/apache/spark-connect-go/spark/sql/column"
+	"github.com/caldempsey/spark-connect-go/spark/sql/column"
 
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	"github.com/caldempsey/spark-connect-go/spark/sql/types"
 
-	proto "github.com/apache/spark-connect-go/internal/generated"
-	"github.com/apache/spark-connect-go/spark/sparkerrors"
+	proto "github.com/caldempsey/spark-connect-go/internal/generated"
+	"github.com/caldempsey/spark-connect-go/spark/sparkerrors"
 )
 
 // ResultCollector receives a stream of result rows
