@@ -127,12 +127,12 @@ func TestDecodeRow_NilIsZero(t *testing.T) {
 	assert.Zero(t, out.S)
 }
 
-func TestTypedDataFrame_RejectsNonStruct(t *testing.T) {
-	// TypedDataFrame is supposed to surface the misuse at construction
-	// time, not at Collect. A map / slice / primitive should fail
-	// clearly with a pointer back at the caller's T.
+func TestAs_RejectsNonStruct(t *testing.T) {
+	// As[T] surfaces the misuse at construction time, not at Collect.
+	// A map / slice / primitive should fail clearly with a pointer
+	// back at the caller's T.
 	type notAStruct = map[string]string
-	_, err := TypedDataFrame[notAStruct](nil)
+	_, err := As[notAStruct](nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "T must be a struct")
 }

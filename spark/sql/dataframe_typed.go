@@ -18,6 +18,7 @@ package sql
 import (
 	"context"
 	"fmt"
+	"iter"
 	"reflect"
 	"strings"
 	"sync"
@@ -27,10 +28,16 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 )
 
-// DataFrameOf[T] is a typed view on a regular DataFrame. Users
-// parameterise it on a Go struct; Collect decodes rows directly
-// into T instead of handing back []any that callers have to
-// type-assert field by field.
+// DataFrameOf[T] is an edge-typing wrapper around a regular DataFrame.
+// Its role is narrow: cache the reflected row plan so a caller who
+// already knows the result shape can materialise into []T / iter /
+// *T without re-validating T on every call.
+//
+// The wrapper deliberately has no transformation methods (no Where,
+// Limit, OrderBy, Select, Join, GroupBy). Transformations change row
+// shape and make the type parameter lie. Callers compose
+// transformations on the untyped DataFrame, then re-type at the edge
+// via As[T] when ready to collect.
 //
 // Column binding uses struct tags in the same shape sqlx / parquet-go
 // already use:
@@ -44,93 +51,27 @@ import (
 // Fields without a `spark:"..."` tag are mapped by snake_case'd field
 // name, so a plain Go struct works without any tags at all. Fields
 // tagged `spark:"-"` are skipped. Columns in the DataFrame that
-// don't match any field are ignored — typical of projections
-// narrower than the struct.
+// don't match any field are ignored — typical of projections narrower
+// than the struct.
 //
 // Schema drift (a struct field that the result's projection doesn't
-// contain) surfaces at the first Collect call as a single error
-// rather than per-row panics.
-//
-// Streaming (iter.Seq2 over T) is intentionally not in v0 — the
-// ExecutePlanClient plumbing wants a dedicated PR so it can ship
-// alongside a proper test matrix. For now, users who need streaming
-// call DataFrame() to drop to the untyped ToRecordSequence path.
+// contain) surfaces at the first Collect / Stream / First call as a
+// single error rather than per-row panics.
 type DataFrameOf[T any] struct {
 	df   DataFrame
 	plan *rowPlan
-	ops  []datasetOp // lazy Where/Limit/OrderBy transforms; applied on materialise
 }
 
-// datasetOp is a pending transform on the underlying DataFrame. Ops
-// are queued by the chainable Where/Limit/OrderBy methods and applied
-// at Collect/Stream/First time so the fluent builder stays ctx-free.
-type datasetOp func(ctx context.Context, df DataFrame) (DataFrame, error)
-
-// resolveDataFrame applies every queued op in declaration order and
-// returns the final DataFrame. Used by Collect/Stream/First to get a
-// materialisable handle.
-func (d *DataFrameOf[T]) resolveDataFrame(ctx context.Context) (DataFrame, error) {
-	df := d.df
-	for _, op := range d.ops {
-		next, err := op(ctx, df)
-		if err != nil {
-			return nil, err
-		}
-		df = next
-	}
-	return df, nil
-}
-
-// clone returns a shallow copy of d with a freshly allocated ops
-// slice so that chained operations don't share state with the parent.
-// Chainable methods return the clone.
-func (d *DataFrameOf[T]) clone() *DataFrameOf[T] {
-	cp := *d
-	cp.ops = append([]datasetOp(nil), d.ops...)
-	return &cp
-}
-
-// SqlAs runs a SQL query and returns a typed Dataset over the result.
-// Equivalent to session.Sql followed by a struct-tag-driven scanner
-// at every row — except the plan is computed once and reused for
-// every Collect / Stream / First call on the returned Dataset.
+// As wraps df in the typed surface. T must be a struct; the row plan
+// is computed and cached once so subsequent Collect / Stream / First
+// calls don't re-reflect. Schema compatibility with T is validated
+// lazily — the first materialisation surfaces drift, not As itself.
 //
-// Free function rather than a method on SparkSession because Go
-// doesn't permit type parameters on interface methods. The session
-// is supplied as the second arg.
-func SqlAs[T any](ctx context.Context, session SparkSession, query string) (*DataFrameOf[T], error) {
-	df, err := session.Sql(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	return TypedDataFrame[T](df)
-}
-
-// TableAs returns a typed Dataset over a named catalog table. Same
-// shape as SqlAs but addressed by table name instead of ad-hoc SQL.
-// Convenience over session.Table + TypedDataFrame[T].
-func TableAs[T any](ctx context.Context, session SparkSession, name string) (*DataFrameOf[T], error) {
-	df, err := session.Table(name)
-	if err != nil {
-		return nil, err
-	}
-	return TypedDataFrame[T](df)
-}
-
-// SqlTyped is the legacy name for SqlAs, kept for source
-// compatibility with pre-1.0 callers. Prefer SqlAs in new code.
-//
-// Deprecated: use SqlAs.
-func SqlTyped[T any](ctx context.Context, session SparkSession, query string) (*DataFrameOf[T], error) {
-	return SqlAs[T](ctx, session, query)
-}
-
-// TypedDataFrame wraps an existing DataFrame in the typed surface.
-// Useful when the caller already holds a DataFrame produced by an
-// operation other than Sql (Read, Table, a chain of transformations).
-// Computes and caches the row plan immediately; a malformed struct
-// surfaces here rather than per-row inside Collect.
-func TypedDataFrame[T any](df DataFrame) (*DataFrameOf[T], error) {
+// This is the only supported constructor for DataFrameOf[T]. Callers
+// hold a DataFrame (from session.Sql, session.Table, a chain of
+// untyped transformations) and hand it here at the point the result
+// shape is known.
+func As[T any](df DataFrame) (*DataFrameOf[T], error) {
 	var zero T
 	rt := reflect.TypeOf(zero)
 	if rt == nil || rt.Kind() != reflect.Struct {
@@ -144,29 +85,25 @@ func TypedDataFrame[T any](df DataFrame) (*DataFrameOf[T], error) {
 }
 
 // DataFrame returns the underlying untyped DataFrame. Escape hatch
-// for operations the typed surface doesn't cover — GroupBy, joins,
-// window functions. Chain freely and call TypedDataFrame again on
-// the result when the output shape is known.
+// for transformations the typed surface deliberately doesn't carry
+// — GroupBy, joins, window functions, Where, Limit, OrderBy. Chain
+// on the untyped handle, then call As[T] again when the output
+// shape is known.
 func (d *DataFrameOf[T]) DataFrame() DataFrame { return d.df }
 
 // Collect materialises every row into a []T. Holds the whole table
 // on the heap for the duration of the call — callers with large
-// result sets should project narrower on the SQL side or drop to
-// the untyped streaming path via DataFrame().
+// result sets should project narrower on the SQL side or use Stream
+// for constant-memory iteration.
 func (d *DataFrameOf[T]) Collect(ctx context.Context) ([]T, error) {
-	df, err := d.resolveDataFrame(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := df.Collect(ctx)
+	rows, err := d.df.Collect(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {
 		return nil, nil
 	}
-	cols := rows[0].FieldNames()
-	bindings, err := d.plan.bind(cols)
+	bindings, err := d.plan.bind(rows[0].FieldNames())
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +114,58 @@ func (d *DataFrameOf[T]) Collect(ctx context.Context) ([]T, error) {
 		}
 	}
 	return out, nil
+}
+
+// Stream yields typed rows one at a time with constant memory. Uses
+// the untyped DataFrame.All streaming primitive underneath. Consumers
+// range with Go 1.23's iter.Seq2:
+//
+//	for row, err := range ds.Stream(ctx) {
+//	    if err != nil { break }
+//	    // use row
+//	}
+func (d *DataFrameOf[T]) Stream(ctx context.Context) iter.Seq2[T, error] {
+	return func(yield func(T, error) bool) {
+		var zero T
+		var bindings []columnBinding
+		for row, rerr := range d.df.All(ctx) {
+			if rerr != nil {
+				yield(zero, rerr)
+				return
+			}
+			if bindings == nil {
+				b, berr := d.plan.bind(row.FieldNames())
+				if berr != nil {
+					yield(zero, berr)
+					return
+				}
+				bindings = b
+			}
+			var out T
+			if derr := decodeRow(d.plan, row.Values(), bindings, &out); derr != nil {
+				yield(zero, derr)
+				return
+			}
+			if !yield(out, nil) {
+				return
+			}
+		}
+	}
+}
+
+// First returns a pointer to the first row as T, or ErrNotFound when
+// the DataFrame produces zero rows. Runs Collect underneath at v0;
+// a LIMIT 1 pushdown lands alongside the Spark Connect plan-cache
+// work in a future cycle.
+func (d *DataFrameOf[T]) First(ctx context.Context) (*T, error) {
+	rows, err := d.Collect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, ErrNotFound
+	}
+	return &rows[0], nil
 }
 
 // rowPlan caches the reflected structure of T so Collect doesn't
@@ -317,9 +306,6 @@ func fieldByIndex(v reflect.Value, index []int) reflect.Value {
 // columns, assignable/convertible for primitives. Anything rarer
 // surfaces as an explicit error so callers can tighten their struct
 // to match.
-//
-// Named with the `Typed` suffix to avoid colliding with the existing
-// assignValue helper in other files.
 func assignTypedValue(dst reflect.Value, src any) error {
 	if src == nil {
 		dst.Set(reflect.Zero(dst.Type()))
