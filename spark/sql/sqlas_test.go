@@ -27,9 +27,9 @@ import (
 // live Spark Connect endpoint. Only Sql and Table need to do anything;
 // the other SparkSession methods never fire on these paths.
 type stubSession struct {
-	SparkSession                      // embed for default no-op behaviour
-	sqlFn                             func(ctx context.Context, query string) (DataFrame, error)
-	tableFn                           func(name string) (DataFrame, error)
+	SparkSession // embed for default no-op behaviour
+	sqlFn        func(ctx context.Context, query string) (DataFrame, error)
+	tableFn      func(name string) (DataFrame, error)
 }
 
 func (s *stubSession) Sql(ctx context.Context, query string) (DataFrame, error) {
