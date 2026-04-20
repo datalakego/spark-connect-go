@@ -29,13 +29,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/apache/spark-connect-go/spark"
+	"github.com/datalake-go/spark-connect-go/spark"
 
 	"github.com/google/uuid"
 
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/apache/spark-connect-go/spark/sparkerrors"
+	"github.com/datalake-go/spark-connect-go/spark/sparkerrors"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -77,6 +77,28 @@ type BaseBuilder struct {
 	headers   map[string]string
 	sessionId string
 	userAgent string
+	dialOpts  []grpc.DialOption
+}
+
+// defaultMaxMessageSize is the per-RPC send/receive ceiling we apply
+// when the caller doesn't set one. The server advertises
+// spark.connect.grpc.maxInboundMessageSize at 128 MiB by default and
+// operators routinely raise it to 1 GiB for bulk reads. gRPC's own
+// default is 4 MiB, which silently truncates a single Arrow batch on
+// any non-trivial query and surfaces as opaque ResourceExhausted
+// errors deep inside Collect()/StreamRows(). Matching the upper end
+// of the server's practical range keeps first-run queries from
+// hitting a floor the caller didn't know existed.
+const defaultMaxMessageSize = 1 << 30 // 1 GiB
+
+// WithDialOptions appends gRPC dial options to the channel builder.
+// Callers use this to raise the per-call message ceiling further, set
+// keepalive parameters for long-lived streams, inject interceptors,
+// or swap in a custom dialer. Options are applied after the builder's
+// defaults, so caller-supplied values win.
+func (cb *BaseBuilder) WithDialOptions(opts ...grpc.DialOption) *BaseBuilder {
+	cb.dialOpts = append(cb.dialOpts, opts...)
+	return cb
 }
 
 func (cb *BaseBuilder) Host() string {
@@ -114,6 +136,15 @@ func (cb *BaseBuilder) Build(ctx context.Context) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 
 	opts = append(opts, grpc.WithAuthority(cb.host))
+
+	// Raise the per-call send/receive ceiling off gRPC's 4 MiB default.
+	// Placed before WithDialOptions so caller-supplied DefaultCallOptions
+	// can still override if they want a tighter limit.
+	opts = append(opts, grpc.WithDefaultCallOptions(
+		grpc.MaxCallRecvMsgSize(defaultMaxMessageSize),
+		grpc.MaxCallSendMsgSize(defaultMaxMessageSize),
+	))
+
 	if cb.token == "" {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	} else {
@@ -133,6 +164,9 @@ func (cb *BaseBuilder) Build(ctx context.Context) (*grpc.ClientConn, error) {
 		})
 		opts = append(opts, grpc.WithPerRPCCredentials(oauth.TokenSource{TokenSource: ts}))
 	}
+
+	// Caller overrides come last so they win over the defaults above.
+	opts = append(opts, cb.dialOpts...)
 
 	remote := fmt.Sprintf("%v:%v", cb.host, cb.port)
 	conn, err := grpc.NewClient(remote, opts...)

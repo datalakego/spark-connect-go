@@ -23,13 +23,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/apache/spark-connect-go/spark/client/base"
+	"github.com/datalake-go/spark-connect-go/spark/client/base"
 
-	"github.com/apache/spark-connect-go/spark/client/options"
+	"github.com/datalake-go/spark-connect-go/spark/client/options"
 	"google.golang.org/grpc/metadata"
 
-	proto "github.com/apache/spark-connect-go/internal/generated"
-	"github.com/apache/spark-connect-go/spark/sparkerrors"
+	proto "github.com/datalake-go/spark-connect-go/internal/generated"
+	"github.com/datalake-go/spark-connect-go/spark/sparkerrors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )

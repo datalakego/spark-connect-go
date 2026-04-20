@@ -4,77 +4,39 @@ import (
 	"context"
 	"errors"
 	"io"
-	"iter"
 	"testing"
+	"time"
 
-	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
+
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 )
 
-// Helper function to create test records
-func createTestRecord(values []string) arrow.Record {
-	schema := arrow.NewSchema(
-		[]arrow.Field{{Name: "col1", Type: arrow.BinaryTypes.String}},
-		nil,
-	)
-
-	alloc := memory.NewGoAllocator()
-	builder := array.NewRecordBuilder(alloc, schema)
-
-	for _, v := range values {
-		builder.Field(0).(*array.StringBuilder).Append(v)
-	}
-
-	record := builder.NewRecord()
-	builder.Release()
-
-	return record
-}
-
-// Helper function to create a Seq2 iterator from test data
-func createTestSeq2(records []arrow.Record, err error) iter.Seq2[arrow.Record, error] {
-	return func(yield func(arrow.Record, error) bool) {
-		// Yield each record
-		for _, record := range records {
-			// Retain before yielding since consumer will release
-			record.Retain()
-			if !yield(record, nil) {
-				return
-			}
-		}
-
-		if err != nil {
-			yield(nil, err)
-		}
-	}
-}
-
 func TestRowIterator_BasicIteration(t *testing.T) {
-	// Create test records
-	records := []arrow.Record{
-		createTestRecord([]string{"row1", "row2"}),
-		createTestRecord([]string{"row3", "row4"}),
-	}
+	recordChan := make(chan arrow.Record, 2)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
 
-	// Clean up records after test
-	defer func() {
-		for _, r := range records {
-			r.Release()
-		}
-	}()
+	// Send test records
+	recordChan <- createTestRecord([]string{"row1", "row2"})
+	recordChan <- createTestRecord([]string{"row3", "row4"})
+	close(recordChan)
 
-	seq2 := createTestSeq2(records, nil)
-
-	rowIter := types.NewRowSequence(context.Background(), seq2)
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+	defer iter.Close()
 
 	// Collect all rows
 	var rows []types.Row
-	for row, err := range rowIter {
+	for {
+		row, err := iter.Next()
+		if err == io.EOF {
+			break
+		}
 		require.NoError(t, err)
 		rows = append(rows, row)
 	}
@@ -87,313 +49,277 @@ func TestRowIterator_BasicIteration(t *testing.T) {
 	assert.Equal(t, "row4", rows[3].At(0))
 }
 
-func TestRowIterator_EmptyResult(t *testing.T) {
-	// Create empty Seq2
-	seq2 := func(yield func(arrow.Record, error) bool) {
-		// Don't yield anything - sequence is immediately over
-	}
+func TestRowIterator_ContextCancellation(t *testing.T) {
+	recordChan := make(chan arrow.Record, 1)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
 
-	next := types.NewRowSequence(context.Background(), seq2)
+	// Send one record
+	recordChan <- createTestRecord([]string{"row1", "row2"})
 
-	// Should iterate zero times
-	count := 0
-	for _, err := range next {
-		require.NoError(t, err)
-		count++
-	}
-	assert.Equal(t, 0, count)
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+
+	// Read first row successfully
+	row, err := iter.Next()
+	require.NoError(t, err)
+	assert.Equal(t, "row1", row.At(0))
+
+	// Close iterator (which cancels context)
+	err = iter.Close()
+	require.NoError(t, err)
+
+	// Subsequent reads should fail with context error
+	_, err = iter.Next()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "iterator is closed")
 }
 
 func TestRowIterator_ErrorPropagation(t *testing.T) {
+	recordChan := make(chan arrow.Record, 1)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
+
+	// Send test record
+	recordChan <- createTestRecord([]string{"row1"})
+
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+	defer iter.Close()
+
+	// Read first row successfully
+	row, err := iter.Next()
+	require.NoError(t, err)
+	assert.Equal(t, "row1", row.At(0))
+
+	// Send error
 	testErr := errors.New("test error")
+	errorChan <- testErr
+	close(recordChan)
 
-	// Create Seq2 that yields one record then an error
-	seq2 := func(yield func(arrow.Record, error) bool) {
-		record := createTestRecord([]string{"row1"})
-		record.Retain() // Consumer will release
-		if !yield(record, nil) {
-			record.Release() // Clean up if yield returns false
-			return
-		}
-		yield(nil, testErr)
-	}
-
-	next := types.NewRowSequence(context.Background(), seq2)
-
-	var rows []types.Row
-	var gotError error
-
-	for row, err := range next {
-		if err != nil {
-			gotError = err
-			break
-		}
-		rows = append(rows, row)
-	}
-
-	// Should have read first row successfully
-	assert.Len(t, rows, 1)
-	assert.Equal(t, "row1", rows[0].At(0))
-
-	// Should have received the error
-	assert.Equal(t, testErr, gotError)
+	// Next read should return the error
+	_, err = iter.Next()
+	assert.Equal(t, testErr, err)
 }
 
-func TestRowIterator_ContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+func TestRowIterator_EmptyResult(t *testing.T) {
+	recordChan := make(chan arrow.Record)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
 
-	// Create a Seq2 that yields records indefinitely
-	seq2 := func(yield func(arrow.Record, error) bool) {
-		for {
-			select {
-			case <-ctx.Done():
-				yield(nil, ctx.Err())
-				return
-			default:
-				record := createTestRecord([]string{"row"})
-				record.Retain() // Consumer will release
-				if !yield(record, nil) {
-					record.Release()
-					return
-				}
-			}
-		}
-	}
+	// Close channel immediately
+	close(recordChan)
 
-	next := types.NewRowSequence(ctx, seq2)
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+	defer iter.Close()
 
-	var rows []types.Row
-	count := 0
+	// First read should return EOF
+	_, err := iter.Next()
+	assert.Equal(t, io.EOF, err)
 
-	for row, err := range next {
-		if err != nil {
-			assert.ErrorIs(t, err, context.Canceled)
-			break
-		}
-		rows = append(rows, row)
-		count++
-
-		// Cancel after first row
-		if count == 1 {
-			cancel()
-		}
-
-		if count > 10 {
-			break
-		}
-	}
-
-	assert.GreaterOrEqual(t, len(rows), 1)
-	assert.Equal(t, "row", rows[0].At(0))
+	// Subsequent reads should also return EOF
+	_, err = iter.Next()
+	assert.Equal(t, io.EOF, err)
 }
 
-func TestRowIterator_EarlyBreak(t *testing.T) {
-	// Create multiple records
-	records := []arrow.Record{
-		createTestRecord([]string{"row1"}),
-		createTestRecord([]string{"row2"}),
-		createTestRecord([]string{"row3"}),
+func TestRowIterator_MultipleClose(t *testing.T) {
+	recordChan := make(chan arrow.Record)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
+
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+
+	// Close multiple times should not panic
+	err := iter.Close()
+	assert.NoError(t, err)
+
+	err = iter.Close()
+	assert.NoError(t, err)
+}
+
+func TestRowIterator_CloseWithPendingRecords(t *testing.T) {
+	recordChan := make(chan arrow.Record, 3)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
+
+	// Send multiple records
+	for i := 0; i < 3; i++ {
+		recordChan <- createTestRecord([]string{"row"})
 	}
 
-	// Clean up records after test
-	defer func() {
-		for _, r := range records {
-			r.Release()
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+
+	// Close without reading all records
+	// This should trigger the cleanup goroutine
+	err := iter.Close()
+	assert.NoError(t, err)
+
+	// Give cleanup goroutine time to run
+	time.Sleep(100 * time.Millisecond)
+
+	// Channel should be drained (this won't block if cleanup worked)
+	select {
+	case <-recordChan:
+		// Good, channel was drained
+	default:
+		// Also acceptable if already drained
+	}
+}
+
+func TestRowIterator_ConcurrentAccess(t *testing.T) {
+	recordChan := make(chan arrow.Record, 5)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
+
+	// Send multiple records
+	for i := 0; i < 5; i++ {
+		recordChan <- createTestRecord([]string{"row"})
+	}
+	close(recordChan)
+
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+	defer iter.Close()
+
+	// Try concurrent reads (should be safe due to mutex)
+	done := make(chan bool, 2)
+
+	go func() {
+		for i := 0; i < 2; i++ {
+			_, _ = iter.Next()
 		}
+		done <- true
 	}()
 
-	seq2 := createTestSeq2(records, nil)
-
-	next := types.NewRowSequence(context.Background(), seq2)
-
-	// Read only one row then break
-	var rows []types.Row
-	for row, err := range next {
-		require.NoError(t, err)
-		rows = append(rows, row)
-		if len(rows) >= 1 {
-			break // Early termination
+	go func() {
+		for i := 0; i < 3; i++ {
+			_, _ = iter.Next()
 		}
-	}
-
-	// Should have only one row
-	assert.Len(t, rows, 1)
-	assert.Equal(t, "row1", rows[0].At(0))
-}
-
-func TestRowIterator_EmptyBatchHandling(t *testing.T) {
-	// Test handling of empty records (0 rows but valid record)
-	emptyRecord := createTestRecord([]string{}) // No rows
-	validRecord := createTestRecord([]string{"row1"})
-
-	records := []arrow.Record{emptyRecord, validRecord}
-	defer func() {
-		for _, r := range records {
-			r.Release()
-		}
+		done <- true
 	}()
 
-	seq2 := createTestSeq2(records, nil)
-	next := types.NewRowSequence(context.Background(), seq2)
+	// Wait for both goroutines
+	<-done
+	<-done
 
-	// Should skip empty batch and return row from second batch
-	var rows []types.Row
-	for row, err := range next {
-		require.NoError(t, err)
-		rows = append(rows, row)
-	}
-
-	assert.Len(t, rows, 1)
-	assert.Equal(t, "row1", rows[0].At(0))
+	// Should have consumed all 5 records
+	_, err := iter.Next()
+	assert.Equal(t, io.EOF, err)
 }
 
-func TestRowIterator_DatabricksEOFBehavior(t *testing.T) {
-	// Test Databricks-specific behavior where io.EOF is sent as an error
-	// value rather than just ending the sequence. NewRowSequence treats
-	// io.EOF as clean termination.
-	seq2 := func(yield func(arrow.Record, error) bool) {
-		record1 := createTestRecord([]string{"row1", "row2"})
-		record1.Retain()
-		if !yield(record1, nil) {
-			record1.Release()
-			return
-		}
+func TestRowIterator_ErrorAfterRecordChannelClosed(t *testing.T) {
+	// Test error handling when record channel closes but error channel has data
+	// This mimics Databricks behavior where EOF errors can come after stream ends
+	recordChan := make(chan arrow.Record, 1)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
 
-		record2 := createTestRecord([]string{"row3"})
-		record2.Retain()
-		if !yield(record2, nil) {
-			record2.Release()
-			return
-		}
+	recordChan <- createTestRecord([]string{"row1"})
+	close(recordChan)
 
-		// Databricks sends io.EOF as error — should terminate cleanly
-		yield(nil, io.EOF)
-	}
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+	defer iter.Close()
 
-	next := types.NewRowSequence(context.Background(), seq2)
+	// Get first row
+	row, err := iter.Next()
+	require.NoError(t, err)
+	assert.Equal(t, "row1", row.At(0))
 
-	// Read all rows successfully
-	var rows []types.Row
-	for row, err := range next {
-		require.NoError(t, err)
-		rows = append(rows, row)
-	}
+	// Put error in channel AFTER getting the first row
+	testErr := errors.New("delayed error")
+	errorChan <- testErr
 
-	// Should have all 3 rows
-	assert.Len(t, rows, 3)
-	assert.Equal(t, "row1", rows[0].At(0))
-	assert.Equal(t, "row2", rows[1].At(0))
-	assert.Equal(t, "row3", rows[2].At(0))
+	// Next call should return the error from error channel
+	_, err = iter.Next()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "delayed error")
 }
 
-func TestRowIterator_NilRecordReturnsError(t *testing.T) {
-	// Test that receiving a nil record returns an error
-	seq2 := func(yield func(arrow.Record, error) bool) {
-		record := createTestRecord([]string{"row1"})
-		record.Retain()
-		if !yield(record, nil) {
-			record.Release()
-			return
-		}
+func TestRowIterator_BothChannelsClosedCleanly(t *testing.T) {
+	// Test clean shutdown when both channels close without errors (Databricks normal case)
+	recordChan := make(chan arrow.Record, 1)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
 
-		// Yield nil record (shouldn't happen in production)
-		yield(nil, nil)
-	}
+	recordChan <- createTestRecord([]string{"row1"})
+	close(recordChan)
+	close(errorChan)
 
-	next := types.NewRowSequence(context.Background(), seq2)
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+	defer iter.Close()
 
-	var rows []types.Row
-	var gotError error
-
-	for row, err := range next {
-		if err != nil {
-			gotError = err
-			break
-		}
-		rows = append(rows, row)
-	}
-
-	// Should have read first row successfully
-	assert.Len(t, rows, 1)
-	assert.Equal(t, "row1", rows[0].At(0))
-
-	// Should have received error about nil record
-	assert.Error(t, gotError)
-	assert.Contains(t, gotError.Error(), "expected non-nil arrow.Record, got nil")
+	row, err := iter.Next()
+	assert.Equal(t, "row1", row.At(0))
+	assert.Nil(t, err)
+	// Should get EOF on next call
+	_, err = iter.Next()
+	assert.Equal(t, io.EOF, err)
 }
 
-func TestRowSeq2_DirectUsage(t *testing.T) {
-	// Test using NewRowSequence directly as a Seq2
-	records := []arrow.Record{
-		createTestRecord([]string{"row1", "row2"}),
-		createTestRecord([]string{"row3"}),
-	}
+func TestRowIterator_RecordReleaseOnError(t *testing.T) {
+	// Test that records are properly released even when conversion fails
+	recordChan := make(chan arrow.Record, 1)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
 
-	defer func() {
-		for _, r := range records {
-			r.Release()
-		}
-	}()
+	// This would test record release, but since we can't easily make
+	// ReadArrowRecordToRows fail, we'll test the normal case
+	record := createTestRecord([]string{"row1"})
+	recordChan <- record
+	close(recordChan)
 
-	recordSeq := createTestSeq2(records, nil)
-	rowSeq := types.NewRowSequence(context.Background(), recordSeq)
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+	defer iter.Close()
 
-	var rows []types.Row
-	for row, err := range rowSeq {
-		require.NoError(t, err)
-		rows = append(rows, row)
-	}
+	// Get record (this should work and release the arrow record internally)
+	row, err := iter.Next()
+	require.NoError(t, err)
+	assert.Equal(t, "row1", row.At(0))
 
-	// Should have all 3 rows flattened
-	assert.Len(t, rows, 3)
-	assert.Equal(t, "row1", rows[0].At(0))
-	assert.Equal(t, "row2", rows[1].At(0))
-	assert.Equal(t, "row3", rows[2].At(0))
+	// Verify we can't get another record
+	_, err = iter.Next()
+	assert.Equal(t, io.EOF, err)
 }
 
-func TestRowIterator_MultipleIterations(t *testing.T) {
-	// Test that ranging the same iterator twice works safely when the
-	// upstream is single-use (like a real gRPC stream).
-	records := []arrow.Record{
-		createTestRecord([]string{"row1", "row2"}),
+func TestRowIterator_ExhaustedState(t *testing.T) {
+	// Test that exhausted state is properly maintained
+	recordChan := make(chan arrow.Record)
+	errorChan := make(chan error, 1)
+	schema := &types.StructType{}
+
+	close(recordChan) // No records
+
+	iter := types.NewRowIterator(context.Background(), recordChan, errorChan, schema)
+	defer iter.Close()
+
+	// First call should set exhausted and return EOF
+	_, err := iter.Next()
+	assert.Equal(t, io.EOF, err)
+
+	// All subsequent calls should also return EOF (exhausted state)
+	for i := 0; i < 3; i++ {
+		_, err := iter.Next()
+		assert.Equal(t, io.EOF, err)
+	}
+}
+
+func createTestRecord(values []string) arrow.Record {
+	schema := arrow.NewSchema(
+		[]arrow.Field{{Name: "col1", Type: arrow.BinaryTypes.String}},
+		nil,
+	)
+
+	// Create a NEW allocator for each record to ensure isolation
+	alloc := memory.NewGoAllocator()
+	builder := array.NewRecordBuilder(alloc, schema)
+
+	for _, v := range values {
+		builder.Field(0).(*array.StringBuilder).Append(v)
 	}
 
-	defer func() {
-		for _, r := range records {
-			r.Release()
-		}
-	}()
+	record := builder.NewRecord()
+	// Release AFTER creating record
+	builder.Release()
 
-	// Build a single-use upstream to simulate a gRPC stream.
-	exhausted := false
-	seq2 := func(yield func(arrow.Record, error) bool) {
-		if exhausted {
-			return
-		}
-		exhausted = true
-		for _, record := range records {
-			record.Retain()
-			if !yield(record, nil) {
-				return
-			}
-		}
-	}
+	// Retain the record to ensure it owns its memory
+	record.Retain()
 
-	next := types.NewRowSequence(context.Background(), seq2)
-
-	var rows1 []types.Row
-	for row, err := range next {
-		require.NoError(t, err)
-		rows1 = append(rows1, row)
-	}
-	assert.Len(t, rows1, 2)
-
-	// Second iteration — upstream exhausted, should yield nothing
-	var rows2 []types.Row
-	for row, err := range next {
-		require.NoError(t, err)
-		rows2 = append(rows2, row)
-	}
-	assert.Len(t, rows2, 0)
+	return record
 }

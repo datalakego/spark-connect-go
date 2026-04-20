@@ -13,9 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-module github.com/apache/spark-connect-go
+module github.com/datalake-go/spark-connect-go
 
-go 1.23.2
+go 1.24
 
 require (
 	github.com/apache/arrow-go/v18 v18.4.0

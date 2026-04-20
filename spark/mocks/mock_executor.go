@@ -19,13 +19,13 @@ import (
 	"context"
 	"errors"
 
-	"github.com/apache/spark-connect-go/spark/sql/utils"
+	"github.com/datalake-go/spark-connect-go/spark/sql/utils"
 
-	"github.com/apache/spark-connect-go/spark/client/base"
+	"github.com/datalake-go/spark-connect-go/spark/client/base"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/apache/spark-connect-go/internal/generated"
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/internal/generated"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 )
 
 type TestExecutor struct {

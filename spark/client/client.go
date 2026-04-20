@@ -20,26 +20,25 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"iter"
 
-	"github.com/apache/spark-connect-go/spark/sql/utils"
+	"github.com/datalake-go/spark-connect-go/spark/sql/utils"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/apache/spark-connect-go/spark/client/base"
-	"github.com/apache/spark-connect-go/spark/mocks"
+	"github.com/datalake-go/spark-connect-go/spark/client/base"
+	"github.com/datalake-go/spark-connect-go/spark/mocks"
 
-	"github.com/apache/spark-connect-go/spark/client/options"
+	"github.com/datalake-go/spark-connect-go/spark/client/options"
 
 	"github.com/google/uuid"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 
-	proto "github.com/apache/spark-connect-go/internal/generated"
-	"github.com/apache/spark-connect-go/spark/sparkerrors"
+	proto "github.com/datalake-go/spark-connect-go/internal/generated"
+	"github.com/datalake-go/spark-connect-go/spark/sparkerrors"
 )
 
 type sparkConnectClientImpl struct {
@@ -435,62 +434,102 @@ func (c *ExecutePlanClient) ToTable() (*types.StructType, arrow.Table, error) {
 	}
 }
 
-// ToRecordSequence returns a single Seq2 iterator that directly yields results as they arrive.
-func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arrow.Record, error] {
-	return func(yield func(arrow.Record, error) bool) {
-		// Represents Spark's reattachable execution.
-		// Tracks logical completion locally to avoid racing on shared struct state.
-		// Spliced from ToTable. We may eventually want to DRY up these workflows.
-		done := false
+func (c *ExecutePlanClient) ToRecordBatches(ctx context.Context) (<-chan arrow.Record, <-chan error, *types.StructType) {
+	recordChan := make(chan arrow.Record, 10)
+	errorChan := make(chan error, 1)
+
+	go func() {
+		defer func() {
+			// Ensure channels are always closed to prevent goroutine leaks
+			close(recordChan)
+			close(errorChan)
+		}()
+
+		// Explicitly needed when tracking re-attachable execution.
+		c.done = false
 
 		for {
+			// Check for context cancellation before each iteration
 			select {
 			case <-ctx.Done():
-				yield(nil, ctx.Err())
+				// Context cancelled - send the error and return immediately
+				select {
+				case errorChan <- ctx.Err():
+				default:
+					// Channel might be full, but we're exiting anyway
+				}
 				return
 			default:
+				// Continue with normal processing
 			}
 
 			resp, err := c.responseStream.Recv()
 
+			// Check for context cancellation after potentially blocking operations
 			select {
 			case <-ctx.Done():
-				yield(nil, ctx.Err())
+				select {
+				case errorChan <- ctx.Err():
+				default:
+				}
 				return
 			default:
 			}
 
+			// EOF is received when the last message has been processed and the stream
+			// finished normally. Handle this FIRST, before any other processing.
 			if errors.Is(err, io.EOF) {
-				break
+				return
 			}
 
+			// If there's any other error, handle it
 			if err != nil {
 				if se := sparkerrors.FromRPCError(err); se != nil {
-					yield(nil, sparkerrors.WithType(se, sparkerrors.ExecutionError))
+					select {
+					case errorChan <- sparkerrors.WithType(se, sparkerrors.ExecutionError):
+					case <-ctx.Done():
+						return
+					}
 				} else {
-					yield(nil, err)
+					// Unknown error - still send it
+					select {
+					case errorChan <- err:
+					case <-ctx.Done():
+						return
+					}
 				}
 				return
 			}
 
+			// Only proceed if we have a valid response (no error)
 			if resp == nil {
 				continue
 			}
 
+			// Check that the server returned the session ID that we were expecting
+			// and that it has not changed.
 			if resp.GetSessionId() != c.sessionId {
-				yield(nil, sparkerrors.WithType(
-					&sparkerrors.InvalidServerSideSessionDetailsError{
-						OwnSessionId:      c.sessionId,
-						ReceivedSessionId: resp.GetSessionId(),
-					}, sparkerrors.InvalidServerSideSessionError))
+				select {
+				case errorChan <- sparkerrors.WithType(&sparkerrors.InvalidServerSideSessionDetailsError{
+					OwnSessionId:      c.sessionId,
+					ReceivedSessionId: resp.GetSessionId(),
+				}, sparkerrors.InvalidServerSideSessionError):
+				case <-ctx.Done():
+					return
+				}
 				return
 			}
 
+			// Check if the response has already the schema set and if yes, convert
+			// the proto DataType to a StructType.
 			if resp.Schema != nil {
-				var schemaErr error
-				c.schema, schemaErr = types.ConvertProtoDataTypeToStructType(resp.Schema)
-				if schemaErr != nil {
-					yield(nil, sparkerrors.WithType(schemaErr, sparkerrors.ExecutionError))
+				c.schema, err = types.ConvertProtoDataTypeToStructType(resp.Schema)
+				if err != nil {
+					select {
+					case errorChan <- sparkerrors.WithType(err, sparkerrors.ExecutionError):
+					case <-ctx.Done():
+						return
+					}
 					return
 				}
 			}
@@ -502,34 +541,42 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 				}
 
 			case *proto.ExecutePlanResponse_ArrowBatch_:
+				// This is what we want - stream the record batch
 				record, err := types.ReadArrowBatchToRecord(x.ArrowBatch.Data, c.schema)
 				if err != nil {
-					yield(nil, err)
+					select {
+					case errorChan <- err:
+					case <-ctx.Done():
+						return
+					}
 					return
 				}
-				if !yield(record, nil) {
+
+				// Try to send the record, but respect context cancellation
+				select {
+				case recordChan <- record:
+					// Successfully sent
+				case <-ctx.Done():
+					// Context cancelled while trying to send - release the record and exit
+					record.Release()
 					return
 				}
 
 			case *proto.ExecutePlanResponse_ResultComplete_:
-				done = true
+				c.done = true
 				return
 
 			case *proto.ExecutePlanResponse_ExecutionProgress_:
-				// Progress updates - ignore for now
+				// Progress updates - we can ignore these or optionally expose them
+				// through a separate channel in the future
 
 			default:
-				// Explicitly ignore unknown message types
+				// Explicitly ignore messages that we cannot process at the moment.
 			}
 		}
+	}()
 
-		// Check that the result is logically complete. With re-attachable execution
-		// the server may interrupt the connection, and we need a ResultComplete
-		// message to confirm the full result was received.
-		if c.opts.ReattachExecution && !done {
-			yield(nil, sparkerrors.WithType(fmt.Errorf("the result is not complete"), sparkerrors.ExecutionError))
-		}
-	}
+	return recordChan, errorChan, c.schema
 }
 
 func NewExecuteResponseStream(

@@ -19,11 +19,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 
-	"github.com/apache/spark-connect-go/spark/sql/functions"
+	"github.com/datalake-go/spark-connect-go/spark/sql/functions"
 
-	"github.com/apache/spark-connect-go/spark/sql"
+	"github.com/datalake-go/spark-connect-go/spark/sql"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -17,13 +17,12 @@ package base
 
 import (
 	"context"
-	"iter"
 
-	"github.com/apache/spark-connect-go/spark/sql/utils"
+	"github.com/datalake-go/spark-connect-go/spark/sql/utils"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/apache/spark-connect-go/internal/generated"
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/internal/generated"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 )
 
 type SparkConnectRPCClient generated.SparkConnectServiceClient
@@ -48,9 +47,7 @@ type SparkConnectClient interface {
 }
 
 type ExecuteResponseStream interface {
-	// ToTable consumes all arrow.Record batches to a single arrow.Table. Useful for collecting all query results into a client DF.
 	ToTable() (*types.StructType, arrow.Table, error)
-	// ToRecordSequence lazily consumes each arrow.Record retrieved by a query. Useful for streaming query results.
-	ToRecordSequence(ctx context.Context) iter.Seq2[arrow.Record, error]
+	ToRecordBatches(ctx context.Context) (<-chan arrow.Record, <-chan error, *types.StructType)
 	Properties() map[string]any
 }

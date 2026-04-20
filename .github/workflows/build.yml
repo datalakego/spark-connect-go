@@ -29,10 +29,10 @@ on:
   pull_request:
   push:
     branches:
-      - master
+      - main
 
 env:
-  SPARK_VERSION: '4.0.1'
+  SPARK_VERSION: '4.0.0'
   HADOOP_VERSION: '3'
 
 permissions:
@@ -84,7 +84,12 @@ jobs:
           echo "Apache Spark is not installed"
           # Access the directory.
           mkdir -p ~/deps/
-          wget -q https://dlcdn.apache.org/spark/spark-${{ env.SPARK_VERSION }}/spark-${{ env.SPARK_VERSION }}-bin-hadoop${{ env.HADOOP_VERSION }}.tgz
+          # dlcdn.apache.org only keeps current releases on its mirrors and
+          # occasionally 404s on older ones. archive.apache.org is the
+          # canonical mirror and never rotates — use it as a fallback.
+          ARCHIVE=spark-${{ env.SPARK_VERSION }}-bin-hadoop${{ env.HADOOP_VERSION }}.tgz
+          wget -q https://dlcdn.apache.org/spark/spark-${{ env.SPARK_VERSION }}/$ARCHIVE || \
+          wget -q https://archive.apache.org/dist/spark/spark-${{ env.SPARK_VERSION }}/$ARCHIVE
           tar -xzf spark-${{ env.SPARK_VERSION }}-bin-hadoop${{ env.HADOOP_VERSION }}.tgz -C ~/deps/
           # Delete the old file
           rm spark-${{ env.SPARK_VERSION }}-bin-hadoop${{ env.HADOOP_VERSION }}.tgz

@@ -22,14 +22,14 @@ import (
 	"math/rand/v2"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/apache/spark-connect-go/spark/sql/utils"
+	"github.com/datalake-go/spark-connect-go/spark/sql/utils"
 
-	"github.com/apache/spark-connect-go/spark/sql/column"
+	"github.com/datalake-go/spark-connect-go/spark/sql/column"
 
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 
-	proto "github.com/apache/spark-connect-go/internal/generated"
-	"github.com/apache/spark-connect-go/spark/sparkerrors"
+	proto "github.com/datalake-go/spark-connect-go/internal/generated"
+	"github.com/datalake-go/spark-connect-go/spark/sparkerrors"
 )
 
 // ResultCollector receives a stream of result rows
@@ -200,11 +200,6 @@ type DataFrame interface {
 	// Sort returns a new DataFrame sorted by the specified columns.
 	Sort(ctx context.Context, columns ...column.Convertible) (DataFrame, error)
 	Stat() DataFrameStatFunctions
-	// StreamRows returns a lazy iterator over rows from Spark.
-	// No rows are fetched from Spark over gRPC until the previous one has been consumed.
-	// It provides no internal buffering: each Row is produced only when the caller
-	// requests it, ensuring client back-pressure is respected.
-	StreamRows(ctx context.Context) (iter.Seq2[types.Row, error], error)
 	// Subtract subtracts the other DataFrame from the current DataFrame. And only returns
 	// distinct rows.
 	Subtract(ctx context.Context, other DataFrame) DataFrame
@@ -219,6 +214,7 @@ type DataFrame interface {
 	Take(ctx context.Context, limit int32) ([]types.Row, error)
 	// ToArrow returns the Arrow representation of the DataFrame.
 	ToArrow(ctx context.Context) (*arrow.Table, error)
+	ToLocalIterator(ctx context.Context) (types.RowIterator, error)
 	// Union is an alias for UnionAll
 	Union(ctx context.Context, other DataFrame) DataFrame
 	// UnionAll returns a new DataFrame containing union of rows in this and another DataFrame.
@@ -941,15 +937,15 @@ func (df *dataFrameImpl) ToArrow(ctx context.Context) (*arrow.Table, error) {
 	return &table, nil
 }
 
-func (df *dataFrameImpl) StreamRows(ctx context.Context) (iter.Seq2[types.Row, error], error) {
+func (df *dataFrameImpl) ToLocalIterator(ctx context.Context) (types.RowIterator, error) {
 	responseClient, err := df.session.client.ExecutePlan(ctx, df.createPlan())
 	if err != nil {
 		return nil, sparkerrors.WithType(fmt.Errorf("failed to execute plan: %w", err), sparkerrors.ExecutionError)
 	}
 
-	seq2 := responseClient.ToRecordSequence(ctx)
+	recordChan, errorChan, schema := responseClient.ToRecordBatches(ctx)
 
-	return types.NewRowSequence(ctx, seq2), nil
+	return types.NewRowIterator(ctx, recordChan, errorChan, schema), nil
 }
 
 func (df *dataFrameImpl) UnionAll(ctx context.Context, other DataFrame) DataFrame {

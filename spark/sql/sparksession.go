@@ -23,20 +23,21 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow/memory"
-	"github.com/apache/spark-connect-go/spark/sql/types"
+	"github.com/datalake-go/spark-connect-go/spark/sql/types"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
-	"github.com/apache/spark-connect-go/spark/client/base"
+	"github.com/datalake-go/spark-connect-go/spark/client/base"
 
-	"github.com/apache/spark-connect-go/spark/client/options"
+	"github.com/datalake-go/spark-connect-go/spark/client/options"
 
-	proto "github.com/apache/spark-connect-go/internal/generated"
-	"github.com/apache/spark-connect-go/spark/client"
-	"github.com/apache/spark-connect-go/spark/client/channel"
-	"github.com/apache/spark-connect-go/spark/sparkerrors"
+	proto "github.com/datalake-go/spark-connect-go/internal/generated"
+	"github.com/datalake-go/spark-connect-go/spark/client"
+	"github.com/datalake-go/spark-connect-go/spark/client/channel"
+	"github.com/datalake-go/spark-connect-go/spark/sparkerrors"
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -58,6 +59,7 @@ func NewSessionBuilder() *SparkSessionBuilder {
 type SparkSessionBuilder struct {
 	connectionString string
 	channelBuilder   channel.Builder
+	dialOpts         []grpc.DialOption
 }
 
 // Remote sets the connection string for remote connection
@@ -71,12 +73,26 @@ func (s *SparkSessionBuilder) WithChannelBuilder(cb channel.Builder) *SparkSessi
 	return s
 }
 
+// WithDialOptions appends gRPC dial options that will be applied when
+// the session builds its underlying channel. Useful for raising the
+// per-call message ceiling further, tuning keepalive, or installing
+// interceptors — anything Spark Connect doesn't expose as a server
+// conf. Ignored when WithChannelBuilder was also called; a custom
+// channel owns its own dial options.
+func (s *SparkSessionBuilder) WithDialOptions(opts ...grpc.DialOption) *SparkSessionBuilder {
+	s.dialOpts = append(s.dialOpts, opts...)
+	return s
+}
+
 func (s *SparkSessionBuilder) Build(ctx context.Context) (SparkSession, error) {
 	if s.channelBuilder == nil {
 		cb, err := channel.NewBuilder(s.connectionString)
 		if err != nil {
 			return nil, sparkerrors.WithType(fmt.Errorf(
 				"failed to connect to remote %s: %w", s.connectionString, err), sparkerrors.ConnectionError)
+		}
+		if len(s.dialOpts) > 0 {
+			cb.WithDialOptions(s.dialOpts...)
 		}
 		s.channelBuilder = cb
 	}
