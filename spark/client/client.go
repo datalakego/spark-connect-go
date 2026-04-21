@@ -443,6 +443,7 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 		// Spliced from ToTable. We may eventually want to DRY up these workflows.
 		done := false
 
+	loop:
 		for {
 			select {
 			case <-ctx.Done():
@@ -461,7 +462,7 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 			}
 
 			if errors.Is(err, io.EOF) {
-				break
+				break loop
 			}
 
 			if err != nil {
@@ -513,7 +514,7 @@ func (c *ExecutePlanClient) ToRecordSequence(ctx context.Context) iter.Seq2[arro
 
 			case *proto.ExecutePlanResponse_ResultComplete_:
 				done = true
-				return
+				break loop
 
 			case *proto.ExecutePlanResponse_ExecutionProgress_:
 				// Progress updates - ignore for now
